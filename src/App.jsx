@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { BrowserRouter, Routes, Route, Outlet, useNavigate } from 'react-router-dom';
 import { Toaster } from '@/components/ui/toaster';
@@ -16,10 +15,12 @@ import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
 import { QrCode, X, ArrowLeft } from 'lucide-react';
 import QRCode from "qrcode.react";
+import { useGameData } from '@/hooks/useGameData';
 
 const AppLayout = () => {
   const { toast } = useToast();
   const navigate = useNavigate();
+  const { data: gameData, loading } = useGameData();
   const [isQrSheetOpen, setQrSheetOpen] = React.useState(false);
   const depositAddress = "0x10aDaB723498E5d6258542Ee6717458a1E3F6590";
 
@@ -31,6 +32,17 @@ const AppLayout = () => {
     });
   };
 
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-brand-bg">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-brand-yellow mx-auto"></div>
+          <p className="mt-4 text-brand-text">Loading your data...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col min-h-screen bg-brand-bg font-sans">
       <header className="fixed top-0 left-0 right-0 z-10 bg-brand-bg/80 backdrop-blur-sm p-4 flex justify-between items-center">
@@ -39,6 +51,9 @@ const AppLayout = () => {
             <h1 className="text-xl font-bold text-brand-text">MOONUSDT</h1>
         </div>
         <div className="flex items-center space-x-2">
+          <div className="text-sm text-brand-text">
+            {gameData ? `${gameData.totalMined?.toFixed(6) || '0.000000'} USDT` : '0.000000 USDT'}
+          </div>
           <Button variant="outline" className="rounded-full bg-brand-yellow border-none font-bold" onClick={() => navigate('/claim')}>Claim</Button>
           <Button variant="ghost" size="icon" onClick={() => setQrSheetOpen(true)}>
             <QrCode className="h-6 w-6 text-brand-text" />
@@ -102,7 +117,6 @@ const PageWithHeader = ({ title, children, showBackButton = true }) => {
   );
 };
 
-
 function App() {
   return (
     <BrowserRouter>
@@ -123,3 +137,4 @@ function App() {
 }
 
 export default App;
+        
