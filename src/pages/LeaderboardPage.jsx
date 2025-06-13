@@ -1,55 +1,255 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Trophy } from 'lucide-react';
-
-const mockLeaderboard = [
-    { rank: 1, name: 'CryptoKing', usdt: 1250.75, avatar: 'https://i.pravatar.cc/150?u=a042581f4e29026704a' },
-    { rank: 2, name: 'MineMaster', usdt: 1100.50, avatar: 'https://i.pravatar.cc/150?u=a042581f4e29026704b' },
-    { rank: 3, name: 'USDTWhale', usdt: 980.25, avatar: 'https://i.pravatar.cc/150?u=a042581f4e29026704c' },
-    { rank: 4, name: 'CoinCollector', usdt: 850.00, avatar: 'https://i.pravatar.cc/150?u=a042581f4e29026704d' },
-    { rank: 5, name: 'SatoshiJr', usdt: 720.80, avatar: 'https://i.pravatar.cc/150?u=a042581f4e29026704e' },
-    { rank: 6, name: 'EtheriumGod', usdt: 610.90, avatar: 'https://i.pravatar.cc/150?u=a042581f4e29026704f' },
-    { rank: 7, name: 'MoonLambo', usdt: 550.00, avatar: 'https://i.pravatar.cc/150?u=a042581f4e29026704g' },
-    { rank: 8, name: 'DiamondHands', usdt: 480.45, avatar: 'https://i.pravatar.cc/150?u=a042581f4e29026704h' },
-    { rank: 9, name: 'Miner49er', usdt: 420.69, avatar: 'https://i.pravatar.cc/150?u=a042581f4e29026704i' },
-    { rank: 10, name: 'JustHodlIt', usdt: 390.10, avatar: 'https://i.pravatar.cc/150?u=a042581f4e29026704j' },
-];
+import { Button } from '@/components/ui/button';
+import { Trophy, Medal, Award, Crown, RefreshCw, Users } from 'lucide-react';
+import { useTelegram } from '@/hooks/useTelegram';
+import { getAllUsers } from '@/lib/firebaseService';
 
 const LeaderboardPage = () => {
+    const { user } = useTelegram();
+    const [leaderboard, setLeaderboard] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [currentUserRank, setCurrentUserRank] = useState(null);
+    const [refreshing, setRefreshing] = useState(false);
+
+    useEffect(() => {
+        loadLeaderboard();
+    }, []);
+
+    const loadLeaderboard = async () => {
+        try {
+            setLoading(true);
+            const users = await getAllUsers(100); // Get top 100 users
+            
+            // Sort users by totalMined in descending order
+            const sortedUsers = users
+                .filter(u => u.totalMined > 0) // Only show users with some earnings
+                .sort((a, b) => (b.totalMined || 0) - (a.totalMined || 0))
+                .map((u, index) => ({
+                    rank: index + 1,
+                    id: u.id,
+                    name: u.username || u.firstName || `User${u.telegramId}`,
+                    firstName: u.firstName || '',
+                    lastName: u.lastName || '',
+                    usdt: u.totalMined || 0,
+                    avatar: u.photoUrl || '',
+                    referralCount: u.referralCount || 0,
+                    minerLevel: u.minerLevel || 1,
+                    storageLevel: u.storageLevel || 1,
+                    lastActive: u.lastActive,
+                    createdAt: u.createdAt
+                }));
+
+            setLeaderboard(sortedUsers);
+
+            // Find current user's rank
+            if (user) {
+                const userRank = sortedUsers.find(u => u.id === user.id.toString());
+                setCurrentUserRank(userRank);
+            }
+        } catch (error) {
+            console.error('Error loading leaderboard:', error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleRefresh = async () => {
+        setRefreshing(true);
+        await loadLeaderboard();
+        setRefreshing(false);
+    };
+
+    const getRankIcon = (rank) => {
+        switch (rank) {
+            case 1:
+                return <Crown className="h-6 w-6 text-yellow-500" />;
+            case 2:
+                return <Medal className="h-6 w-6 text-gray-400" />;
+            case 3:
+                return <Award className="h-6 w-6 text-amber-600" />;
+            default:
+                return <span className="text-lg font-bold w-6 text-center text-gray-600">{rank}</span>;
+        }
+    };
+
+    const getRankBadgeColor = (rank) => {
+        if (rank <= 3) return 'bg-gradient-to-r from-yellow-400 to-yellow-600 text-white';
+        if (rank <= 10) return 'bg-gradient-to-r from-blue-400 to-blue-600 text-white';
+        if (rank <= 50) return 'bg-gradient-to-r from-green-400 to-green-600 text-white';
+        return 'bg-gray-100 text-gray-700';
+    };
+
+    const formatTimeAgo = (timestamp) => {
+        if (!timestamp) return 'Never';
+        
+        const now = new Date();
+        const time = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+        const diffInHours = Math.floor((now - time) / (1000 * 60 * 60));
+        
+        if (diffInHours < 1) return 'Just now';
+        if (diffInHours < 24) return `${diffInHours}h ago`;
+        if (diffInHours < 168) return `${Math.floor(diffInHours / 24)}d ago`;
+        return `${Math.floor(diffInHours / 168)}w ago`;
+    };
+
+    if (loading) {
+        return (
+            <div className="p-4 space-y-6">
+                <div className="flex flex-col items-center text-center">
+                    <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-brand-yellow"></div>
+                    <p className="mt-4 text-brand-text">Loading leaderboard...</p>
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div className="p-4 space-y-6">
             <div className="flex flex-col items-center text-center">
                 <Trophy className="h-16 w-16 text-brand-yellow drop-shadow-lg" />
-                <h1 className="text-3xl font-bold mt-2">Top Miners</h1>
-                <p className="text-gray-600">See who's leading the charge!</p>
+                <h1 className="text-3xl font-bold mt-2 text-brand-text">Top Miners</h1>
+                <p className="text-brand-text/70">See who's leading the charge!</p>
+                <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={handleRefresh}
+                    disabled={refreshing}
+                    className="mt-2"
+                >
+                    <RefreshCw className={`h-4 w-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
+                    Refresh
+                </Button>
             </div>
 
+            {/* Current User Rank Card */}
+            {currentUserRank && (
+                <Card className="bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-2xl shadow-lg">
+                    <CardContent className="p-4">
+                        <div className="flex items-center space-x-4">
+                            <div className="flex items-center space-x-2">
+                                {getRankIcon(currentUserRank.rank)}
+                                <span className="text-lg font-bold">#{currentUserRank.rank}</span>
+                            </div>
+                            <Avatar className="h-12 w-12 border-2 border-white">
+                                <AvatarImage src={currentUserRank.avatar} alt={currentUserRank.name} />
+                                <AvatarFallback className="bg-white text-blue-600">
+                                    {currentUserRank.name[0]?.toUpperCase()}
+                                </AvatarFallback>
+                            </Avatar>
+                            <div className="flex-grow">
+                                <p className="font-semibold">Your Rank</p>
+                                <p className="text-sm opacity-90">{currentUserRank.usdt.toFixed(6)} USDT</p>
+                            </div>
+                        </div>
+                    </CardContent>
+                </Card>
+            )}
+
+            {/* Leaderboard Stats */}
+            <div className="grid grid-cols-2 gap-4">
+                <Card className="bg-white rounded-xl shadow-sm">
+                    <CardContent className="p-4 text-center">
+                        <Users className="h-8 w-8 text-brand-yellow mx-auto mb-2" />
+                        <p className="text-2xl font-bold text-brand-text">{leaderboard.length}</p>
+                        <p className="text-sm text-brand-text/70">Active Miners</p>
+                    </CardContent>
+                </Card>
+                <Card className="bg-white rounded-xl shadow-sm">
+                    <CardContent className="p-4 text-center">
+                        <Trophy className="h-8 w-8 text-brand-yellow mx-auto mb-2" />
+                        <p className="text-2xl font-bold text-brand-text">
+                            {leaderboard[0]?.usdt.toFixed(2) || '0.00'}
+                        </p>
+                        <p className="text-sm text-brand-text/70">Top Earner</p>
+                    </CardContent>
+                </Card>
+            </div>
+
+            {/* Leaderboard */}
             <Card className="bg-white rounded-2xl shadow-md">
                 <CardHeader>
-                    <CardTitle>Global Rankings</CardTitle>
-                    <CardDescription>Real-time data requires backend integration. This is mock data.</CardDescription>
+                    <CardTitle className="text-brand-text">Global Rankings</CardTitle>
+                    <CardDescription>Real-time leaderboard based on total USDT earned</CardDescription>
                 </CardHeader>
                 <CardContent>
-                    <div className="space-y-3">
-                        {mockLeaderboard.map((user, index) => (
-                            <div key={user.rank} className={`flex items-center space-x-4 p-3 rounded-lg ${index < 3 ? 'bg-brand-yellow/20' : ''}`}>
-                                <span className="text-lg font-bold w-6 text-center">{user.rank}</span>
-                                <Avatar className="h-10 w-10">
-                                    <AvatarImage src={user.avatar} alt={user.name} />
-                                    <AvatarFallback>{user.name[0]}</AvatarFallback>
-                                </Avatar>
-                                <div className="flex-grow">
-                                    <p className="font-semibold">{user.name}</p>
+                    {leaderboard.length === 0 ? (
+                        <div className="text-center py-8 text-gray-500">
+                            <Users className="mx-auto h-12 w-12 text-gray-300 mb-4" />
+                            <p>No miners found yet.</p>
+                            <p className="text-sm">Be the first to start mining!</p>
+                        </div>
+                    ) : (
+                        <div className="space-y-3">
+                            {leaderboard.slice(0, 50).map((userItem, index) => (
+                                <div 
+                                    key={userItem.id} 
+                                    className={`flex items-center space-x-4 p-3 rounded-lg transition-all hover:shadow-md ${
+                                        index < 3 ? 'bg-gradient-to-r from-yellow-50 to-yellow-100 border border-yellow-200' : 
+                                        userItem.id === user?.id.toString() ? 'bg-blue-50 border border-blue-200' : 
+                                        'hover:bg-gray-50'
+                                    }`}
+                                >
+                                    {/* Rank */}
+                                    <div className="flex items-center justify-center w-10">
+                                        {getRankIcon(userItem.rank)}
+                                    </div>
+
+                                    {/* Avatar */}
+                                    <Avatar className="h-12 w-12 border-2 border-gray-200">
+                                        <AvatarImage src={userItem.avatar} alt={userItem.name} />
+                                        <AvatarFallback className="bg-brand-yellow text-white font-bold">
+                                            {userItem.name[0]?.toUpperCase()}
+                                        </AvatarFallback>
+                                    </Avatar>
+
+                                    {/* User Info */}
+                                    <div className="flex-grow min-w-0">
+                                        <div className="flex items-center space-x-2">
+                                            <p className="font-semibold text-brand-text truncate">
+                                                {userItem.name}
+                                                {userItem.id === user?.id.toString() && (
+                                                    <span className="text-xs bg-blue-500 text-white px-2 py-1 rounded-full ml-2">
+                                                        You
+                                                    </span>
+                                                )}
+                                            </p>
+                                        </div>
+                                        <div className="flex items-center space-x-4 text-xs text-gray-500">
+                                            <span>Level {userItem.minerLevel}</span>
+                                            <span>{userItem.referralCount} referrals</span>
+                                            <span>Active {formatTimeAgo(userItem.lastActive)}</span>
+                                        </div>
+                                    </div>
+
+                                    {/* USDT Amount */}
+                                    <div className="text-right">
+                                        <p className="font-bold text-green-600 text-lg">
+                                            {userItem.usdt.toFixed(6)}
+                                        </p>
+                                        <p className="text-xs text-gray-500">USDT</p>
+                                    </div>
+
+                                    {/* Rank Badge */}
+                                    <div className={`px-2 py-1 rounded-full text-xs font-bold ${getRankBadgeColor(userItem.rank)}`}>
+                                        #{userItem.rank}
+                                    </div>
                                 </div>
-                                <div className="text-right">
-                                    <p className="font-bold text-green-600">{user.usdt.toFixed(2)} USDT</p>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
+                            ))}
+                        </div>
+                    )}
                 </CardContent>
             </Card>
+
+            {/* Show More Button */}
+            {leaderboard.length > 50 && (
+                <div className="text-center">
+                    <p className="text-sm text-gray-500">
+                        Showing top 50 miners. Total active miners: {leaderboard.length}
+                    </p>
+                </div>
+            )}
         </div>
     );
 };
