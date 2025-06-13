@@ -7,6 +7,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/components/ui/use-toast';
 import { PlusCircle, Edit, Trash2, Check, X, RefreshCw } from 'lucide-react';
+import * as XLSX from 'xlsx';
+import { saveAs } from 'file-saver';
 
 const AdminDashboardPage = ({ onLogout }) => {
     const { 
@@ -14,41 +16,25 @@ const AdminDashboardPage = ({ onLogout }) => {
         addTask, 
         updateTask, 
         removeTask, 
-        getPendingTransactions,
-        approveWithdrawal,
-        rejectWithdrawal,
-        approveDeposit,
-        rejectDeposit
+        pendingWithdrawals,
+        pendingDeposits,
+        adminStats,
+        loadWithdrawalHistory,
+        loadDepositHistory,
+        withdrawalHistory,
+        depositHistory,
+        loading
     } = useAdmin();
     
     const { toast } = useToast();
     const [isTaskDialogOpen, setIsTaskDialogOpen] = useState(false);
     const [currentTask, setCurrentTask] = useState(null);
-    const [pendingWithdrawals, setPendingWithdrawals] = useState([]);
-    const [pendingDeposits, setPendingDeposits] = useState([]);
-    const [loading, setLoading] = useState(false);
+    const [isHistoryDialogOpen, setIsHistoryDialogOpen] = useState(false);
 
     useEffect(() => {
-        loadPendingTransactions();
+        loadWithdrawalHistory();
+        loadDepositHistory();
     }, []);
-
-    const loadPendingTransactions = async () => {
-        setLoading(true);
-        try {
-            const { withdrawals, deposits } = await getPendingTransactions();
-            setPendingWithdrawals(withdrawals);
-            setPendingDeposits(deposits);
-        } catch (error) {
-            console.error('Error loading pending transactions:', error);
-            toast({
-                title: "Error",
-                description: "Failed to load pending transactions.",
-                variant: "destructive"
-            });
-        } finally {
-            setLoading(false);
-        }
-    };
 
     const handleOpenTaskDialog = (task = null) => {
         setCurrentTask(task);
@@ -99,42 +85,13 @@ const AdminDashboardPage = ({ onLogout }) => {
         }
     };
 
-    const handleWithdrawalAction = async (withdrawal, approve) => {
-        try {
-            if (approve) {
-                await approveWithdrawal(withdrawal.id);
-                toast({ title: "Withdrawal Approved", description: `${withdrawal.amount} USDT approved for ${withdrawal.username}` });
-            } else {
-                await rejectWithdrawal(withdrawal.id, withdrawal.userId, withdrawal.amount);
-                toast({ title: "Withdrawal Rejected", description: `${withdrawal.amount} USDT refunded to ${withdrawal.username}` });
-            }
-            await loadPendingTransactions();
-        } catch (error) {
-            toast({
-                title: "Error",
-                description: `Failed to ${approve ? 'approve' : 'reject'} withdrawal.`,
-                variant: "destructive"
-            });
-        }
-    };
-
-    const handleDepositAction = async (deposit, approve) => {
-        try {
-            if (approve) {
-                await approveDeposit(deposit.id, deposit.userId, deposit.amount);
-                toast({ title: "Deposit Approved", description: `${deposit.amount} USDT credited to ${deposit.username}` });
-            } else {
-                await rejectDeposit(deposit.id);
-                toast({ title: "Deposit Rejected", description: `Deposit rejected for ${deposit.username}` });
-            }
-            await loadPendingTransactions();
-        } catch (error) {
-            toast({
-                title: "Error",
-                description: `Failed to ${approve ? 'approve' : 'reject'} deposit.`,
-                variant: "destructive"
-            });
-        }
+    const handleDownloadHistory = (data, type) => {
+        const worksheet = XLSX.utils.json_to_sheet(data);
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, type);
+        const excelBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+        const blob = new Blob([excelBuffer], { type: 'application/octet-stream' });
+        saveAs(blob, `${type}_history.xlsx`);
     };
 
     return (
@@ -148,7 +105,7 @@ const AdminDashboardPage = ({ onLogout }) => {
                     <div className="flex space-x-2">
                         <Button 
                             variant="outline" 
-                            onClick={loadPendingTransactions}
+                            onClick={() => window.location.reload()}
                             disabled={loading}
                         >
                             <RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
@@ -157,6 +114,50 @@ const AdminDashboardPage = ({ onLogout }) => {
                         <Button onClick={onLogout}>Logout</Button>
                     </div>
                 </CardHeader>
+                <CardContent>
+                    <div className="grid grid-cols-3 gap-4">
+                        <Card>
+                            <CardHeader>
+                                <CardTitle>Total Users</CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                                <p className="text-2xl font-bold">{adminStats.totalUsers}</p>
+                            </CardContent>
+                        </Card>
+                        <Card>
+                            <CardHeader>
+                                <CardTitle>Total Tasks</CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                                <p className="text-2xl font-bold">{adminStats.totalTasks}</p>
+                            </CardContent>
+                        </Card>
+                        <Card>
+                            <CardHeader>
+                                <CardTitle>Pending Withdrawals</CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                                <p className="text-2xl font-bold">{adminStats.pendingWithdrawals}</p>
+                            </CardContent>
+                        </Card>
+                        <Card>
+                            <CardHeader>
+                                <CardTitle>Pending Deposits</CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                                <p className="text-2xl font-bold">{adminStats.pendingDeposits}</p>
+                            </CardContent>
+                        </Card>
+                        <Card>
+                            <CardHeader>
+                                <CardTitle>Pending Tasks</CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                                <p className="text-2xl font-bold">{adminStats.pendingTasks}</p>
+                            </CardContent>
+                        </Card>
+                    </div>
+                </CardContent>
             </Card>
 
             <Card className="mt-6">
@@ -203,107 +204,22 @@ const AdminDashboardPage = ({ onLogout }) => {
                 </CardContent>
             </Card>
 
-            <Dialog open={isTaskDialogOpen} onOpenChange={setIsTaskDialogOpen}>
-                <DialogContent>
-                    <DialogHeader>
-                        <DialogTitle>{currentTask ? 'Edit Task' : 'Add New Task'}</DialogTitle>
-                    </DialogHeader>
-                    <form onSubmit={handleSaveTask} className="space-y-4">
-                        <div>
-                            <Label htmlFor="name">Name</Label>
-                            <Input 
-                                id="name" 
-                                name="name" 
-                                defaultValue={currentTask?.name || ''} 
-                                required 
-                            />
-                        </div>
-                        <div>
-                            <Label htmlFor="description">Description</Label>
-                            <Input 
-                                id="description" 
-                                name="description" 
-                                defaultValue={currentTask?.description || ''} 
-                                required 
-                            />
-                        </div>
-                        <div>
-                            <Label htmlFor="reward">Reward (USDT)</Label>
-                            <Input 
-                                id="reward" 
-                                name="reward" 
-                                type="number" 
-                                step="any" 
-                                defaultValue={currentTask?.reward || ''} 
-                                required 
-                            />
-                        </div>
-                        <div>
-                            <Label htmlFor="target">Target (URL or keyword)</Label>
-                            <Input 
-                                id="target" 
-                                name="target" 
-                                defaultValue={currentTask?.target || ''} 
-                                required 
-                            />
-                        </div>
-                        <div>
-                            <Label htmlFor="type">Type</Label>
-                            <select 
-                                id="type" 
-                                name="type" 
-                                defaultValue={currentTask?.type || 'manual'} 
-                                className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-transparent px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                            >
-                                <option value="manual">Manual</option>
-                                <option value="auto">Auto</option>
-                            </select>
-                        </div>
-                        <div>
-                            <Label htmlFor="icon">Icon (Lucide Name)</Label>
-                            <Input 
-                                id="icon" 
-                                name="icon" 
-                                defaultValue={currentTask?.icon || 'Gift'} 
-                                placeholder="e.g., Gift, Send, Users" 
-                                required 
-                            />
-                        </div>
-                        <DialogFooter>
-                            <DialogClose asChild>
-                                <Button type="button" variant="secondary">Cancel</Button>
-                            </DialogClose>
-                            <Button type="submit">Save Task</Button>
-                        </DialogFooter>
-                    </form>
-                </DialogContent>
-            </Dialog>
-
             <Card className="mt-6">
                 <CardHeader>
                     <CardTitle>Pending Withdrawals</CardTitle>
                 </CardHeader>
                 <CardContent>
-                    {loading ? (
-                        <div className="flex justify-center py-4">
-                            <RefreshCw className="h-6 w-6 animate-spin" />
-                        </div>
-                    ) : pendingWithdrawals.length === 0 ? (
+                    {pendingWithdrawals.length === 0 ? (
                         <p className="text-gray-500">No pending withdrawals.</p>
                     ) : (
                         <div className="space-y-2">
                             {pendingWithdrawals.map(withdrawal => (
                                 <div key={withdrawal.id} className="p-3 bg-white rounded-lg shadow-sm flex justify-between items-center">
                                     <div>
-                                        <p className="font-medium">User: {withdrawal.username} ({withdrawal.userId})</p>
+                                        <p className="font-medium">:User  {withdrawal.username} ({withdrawal.userId})</p>
                                         <p className="text-sm">Amount: {withdrawal.amount} USDT</p>
                                         <p className="text-xs text-gray-500">Address: {withdrawal.address}</p>
-                                        <p className="text-xs text-gray-400">
-                                            {withdrawal.createdAt?.toDate ? 
-                                                withdrawal.createdAt.toDate().toLocaleString() : 
-                                                'Date not available'
-                                            }
-                                        </p>
+                                        <p className="text-xs text-gray-400">{withdrawal.createdAt?.toDate ? withdrawal.createdAt.toDate().toLocaleString() : 'Date not available'}</p>
                                     </div>
                                     <div className="flex space-x-2">
                                         <Button 
@@ -335,26 +251,17 @@ const AdminDashboardPage = ({ onLogout }) => {
                     <CardTitle>Pending Deposits</CardTitle>
                 </CardHeader>
                 <CardContent>
-                    {loading ? (
-                        <div className="flex justify-center py-4">
-                            <RefreshCw className="h-6 w-6 animate-spin" />
-                        </div>
-                    ) : pendingDeposits.length === 0 ? (
+                    {pendingDeposits.length === 0 ? (
                         <p className="text-gray-500">No pending deposits.</p>
                     ) : (
                         <div className="space-y-2">
                             {pendingDeposits.map(deposit => (
                                 <div key={deposit.id} className="p-3 bg-white rounded-lg shadow-sm flex justify-between items-center">
                                     <div>
-                                        <p className="font-medium">User: {deposit.username} ({deposit.userId})</p>
+                                        <p className="font-medium">:User  {deposit.username} ({deposit.userId})</p>
                                         <p className="text-sm">Amount: {deposit.amount} USDT</p>
                                         <p className="text-xs text-gray-500">TxHash: {deposit.transactionHash}</p>
-                                        <p className="text-xs text-gray-400">
-                                            {deposit.createdAt?.toDate ? 
-                                                deposit.createdAt.toDate().toLocaleString() : 
-                                                'Date not available'
-                                            }
-                                        </p>
+                                        <p className="text-xs text-gray-400">{deposit.createdAt?.toDate ? deposit.createdAt.toDate().toLocaleString() : 'Date not available'}</p>
                                     </div>
                                     <div className="flex space-x-2">
                                         <Button 
@@ -380,6 +287,66 @@ const AdminDashboardPage = ({ onLogout }) => {
                     )}
                 </CardContent>
             </Card>
+
+            <Button onClick={() => setIsHistoryDialogOpen(true)} className="mt-4">
+                View Withdrawal History
+            </Button>
+
+            <Dialog open={isHistoryDialogOpen} onOpenChange={setIsHistoryDialogOpen}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Withdrawal History</DialogTitle>
+                    </DialogHeader>
+                    <DialogContent>
+                        <div className="space-y-4">
+                            {withdrawalHistory.map(history => (
+                                <div key={history.id} className="flex justify-between p-2 bg-gray-100 rounded-lg">
+                                    <div>
+                                        <p>User: {history.username}</p>
+                                        <p>Amount: {history.amount} USDT</p>
+                                        <p>Status: {history.status}</p>
+                                        <p>Date: {history.createdAt?.toDate().toLocaleString()}</p>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </DialogContent>
+                    <DialogFooter>
+                        <Button onClick={() => handleDownloadHistory(withdrawalHistory, 'withdrawal')}>Download as Excel</Button>
+                        <DialogClose asChild>
+                            <Button variant="secondary">Close</Button>
+                        </DialogClose>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            <Dialog open={isHistoryDialogOpen} onOpenChange={setIsHistoryDialogOpen}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Deposit History</DialogTitle>
+                    </DialogHeader>
+                    <DialogContent>
+                        <div className="space-y-4">
+                            {depositHistory.map(history => (
+                                <div key={history.id} className="flex justify-between p-2 bg-gray-100 rounded-lg">
+                                    <div>
+                                        <p>User: {history.username}</p>
+                                        <p>Amount: {history.amount} USDT</p>
+                                        <p>Status: {history.status}</p>
+                                        <p>Date: {history.createdAt?.toDate().toLocaleString()}</p>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </DialogContent>
+                    <DialogFooter>
+                        <Button onClick={() => handleDownloadHistory(depositHistory, 'deposit')}>Download as Excel</Button>
+                        <DialogClose asChild>
+                            <Button variant="secondary">Close</Button>
+                        </DialogClose>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 };
