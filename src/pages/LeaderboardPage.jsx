@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
-import { Trophy, Medal, Award, Crown, RefreshCw, Users } from 'lucide-react';
+import { Trophy, Medal, Award, Crown, RefreshCw, Users, Star, Zap } from 'lucide-react';
 import { useTelegram } from '@/hooks/useTelegram';
 import { getAllUsers } from '@/lib/firebaseService';
 
@@ -32,13 +32,15 @@ const LeaderboardPage = () => {
                     name: u.username || u.firstName || `User${u.telegramId}`,
                     firstName: u.firstName || '',
                     lastName: u.lastName || '',
+                    fullName: `${u.firstName || ''} ${u.lastName || ''}`.trim() || u.username || `User${u.telegramId}`,
                     usdt: u.totalMined || 0,
                     avatar: u.photoUrl || '',
                     referralCount: u.referralCount || 0,
                     minerLevel: u.minerLevel || 1,
                     storageLevel: u.storageLevel || 1,
                     lastActive: u.lastActive,
-                    createdAt: u.createdAt
+                    createdAt: u.createdAt,
+                    isPremium: u.isPremium || false
                 }));
 
             setLeaderboard(sortedUsers);
@@ -64,13 +66,13 @@ const LeaderboardPage = () => {
     const getRankIcon = (rank) => {
         switch (rank) {
             case 1:
-                return <Crown className="h-6 w-6 text-yellow-500" />;
+                return <Crown className="h-5 w-5 text-yellow-500" />;
             case 2:
-                return <Medal className="h-6 w-6 text-gray-400" />;
+                return <Medal className="h-5 w-5 text-gray-400" />;
             case 3:
-                return <Award className="h-6 w-6 text-amber-600" />;
+                return <Award className="h-5 w-5 text-amber-600" />;
             default:
-                return <span className="text-lg font-bold w-6 text-center text-gray-600">{rank}</span>;
+                return <span className="text-sm font-bold w-5 text-center text-gray-600">{rank}</span>;
         }
     };
 
@@ -127,20 +129,21 @@ const LeaderboardPage = () => {
             {currentUserRank && (
                 <Card className="bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-2xl shadow-lg">
                     <CardContent className="p-4">
-                        <div className="flex items-center space-x-4">
+                        <div className="flex items-center space-x-3">
                             <div className="flex items-center space-x-2">
                                 {getRankIcon(currentUserRank.rank)}
                                 <span className="text-lg font-bold">#{currentUserRank.rank}</span>
                             </div>
                             <Avatar className="h-12 w-12 border-2 border-white">
-                                <AvatarImage src={currentUserRank.avatar} alt={currentUserRank.name} />
-                                <AvatarFallback className="bg-white text-blue-600">
-                                    {currentUserRank.name[0]?.toUpperCase()}
+                                <AvatarImage src={currentUserRank.avatar} alt={currentUserRank.fullName} />
+                                <AvatarFallback className="bg-white text-blue-600 font-bold">
+                                    {currentUserRank.fullName[0]?.toUpperCase()}
                                 </AvatarFallback>
                             </Avatar>
-                            <div className="flex-grow">
-                                <p className="font-semibold">Your Rank</p>
-                                <p className="text-sm opacity-90">{currentUserRank.usdt.toFixed(6)} USDT</p>
+                            <div className="flex-grow min-w-0">
+                                <p className="font-bold text-lg truncate">Your Rank</p>
+                                <p className="text-sm opacity-90 truncate">{currentUserRank.fullName}</p>
+                                <p className="text-xs opacity-80">{currentUserRank.usdt.toFixed(6)} USDT</p>
                             </div>
                         </div>
                     </CardContent>
@@ -181,58 +184,69 @@ const LeaderboardPage = () => {
                             <p className="text-sm">Be the first to start mining!</p>
                         </div>
                     ) : (
-                        <div className="space-y-3">
+                        <div className="space-y-2">
                             {leaderboard.slice(0, 50).map((userItem, index) => (
                                 <div 
                                     key={userItem.id} 
-                                    className={`flex items-center space-x-4 p-3 rounded-lg transition-all hover:shadow-md ${
+                                    className={`flex items-center space-x-3 p-3 rounded-lg transition-all hover:shadow-md ${
                                         index < 3 ? 'bg-gradient-to-r from-yellow-50 to-yellow-100 border border-yellow-200' : 
                                         userItem.id === user?.id.toString() ? 'bg-blue-50 border border-blue-200' : 
                                         'hover:bg-gray-50'
                                     }`}
                                 >
                                     {/* Rank */}
-                                    <div className="flex items-center justify-center w-10">
+                                    <div className="flex items-center justify-center w-8">
                                         {getRankIcon(userItem.rank)}
                                     </div>
 
                                     {/* Avatar */}
-                                    <Avatar className="h-12 w-12 border-2 border-gray-200">
-                                        <AvatarImage src={userItem.avatar} alt={userItem.name} />
-                                        <AvatarFallback className="bg-brand-yellow text-white font-bold">
-                                            {userItem.name[0]?.toUpperCase()}
+                                    <Avatar className="h-10 w-10 border-2 border-gray-200">
+                                        <AvatarImage src={userItem.avatar} alt={userItem.fullName} />
+                                        <AvatarFallback className="bg-brand-yellow text-white font-bold text-sm">
+                                            {userItem.fullName[0]?.toUpperCase()}
                                         </AvatarFallback>
                                     </Avatar>
 
                                     {/* User Info */}
                                     <div className="flex-grow min-w-0">
                                         <div className="flex items-center space-x-2">
-                                            <p className="font-semibold text-brand-text truncate">
-                                                {userItem.name}
-                                                {userItem.id === user?.id.toString() && (
-                                                    <span className="text-xs bg-blue-500 text-white px-2 py-1 rounded-full ml-2">
-                                                        You
-                                                    </span>
-                                                )}
+                                            <p className="font-bold text-lg text-brand-text truncate">
+                                                {userItem.fullName}
+                                            </p>
+                                            {userItem.isPremium && (
+                                                <Star className="h-4 w-4 text-yellow-500 flex-shrink-0" />
+                                            )}
+                                            {userItem.id === user?.id.toString() && (
+                                                <span className="text-xs bg-blue-500 text-white px-2 py-0.5 rounded-full flex-shrink-0">
+                                                    You
+                                                </span>
+                                            )}
+                                        </div>
+                                        
+                                        {/* User Stats Row 1 */}
+                                        <div className="flex items-center space-x-3 text-xs text-gray-600 mt-0.5">
+                                            <div className="flex items-center space-x-1">
+                                                <Zap className="h-3 w-3" />
+                                                <span>L{userItem.minerLevel}</span>
+                                            </div>
+                                            <div className="flex items-center space-x-1">
+                                                <Users className="h-3 w-3" />
+                                                <span>{userItem.referralCount}</span>
+                                            </div>
+                                            <span className="text-gray-400">•</span>
+                                            <span>{formatTimeAgo(userItem.lastActive)}</span>
+                                        </div>
+                                        
+                                        {/* USDT Amount */}
+                                        <div className="mt-1">
+                                            <p className="text-sm font-semibold text-green-600">
+                                                {userItem.usdt.toFixed(6)} USDT
                                             </p>
                                         </div>
-                                        <div className="flex items-center space-x-4 text-xs text-gray-500">
-                                            <span>Level {userItem.minerLevel}</span>
-                                            <span>{userItem.referralCount} referrals</span>
-                                            <span>Active {formatTimeAgo(userItem.lastActive)}</span>
-                                        </div>
-                                    </div>
-
-                                    {/* USDT Amount */}
-                                    <div className="text-right">
-                                        <p className="font-bold text-green-600 text-lg">
-                                            {userItem.usdt.toFixed(6)}
-                                        </p>
-                                        <p className="text-xs text-gray-500">USDT</p>
                                     </div>
 
                                     {/* Rank Badge */}
-                                    <div className={`px-2 py-1 rounded-full text-xs font-bold ${getRankBadgeColor(userItem.rank)}`}>
+                                    <div className={`px-2 py-1 rounded-full text-xs font-bold flex-shrink-0 ${getRankBadgeColor(userItem.rank)}`}>
                                         #{userItem.rank}
                                     </div>
                                 </div>
