@@ -45,22 +45,30 @@ const AppLayout = () => {
 
   return (
     <div className="flex flex-col min-h-screen bg-brand-bg font-sans">
-      <header className="fixed top-0 left-0 right-0 z-10 bg-brand-bg/80 backdrop-blur-sm p-4 flex justify-between items-center">
-        <div className="flex items-center space-x-2">
-            <img  alt="USDT coin logo" className="h-8 w-8" src="https://images.unsplash.com/photo-1694279901445-2007392c4bf9" />
+      <header className="fixed top-0 left-0 right-0 z-10 bg-brand-bg/80 backdrop-blur-sm p-4">
+        <div className="flex justify-between items-center">
+          <div className="flex items-center space-x-2">
+            <img alt="USDT coin logo" className="h-8 w-8" src="https://images.unsplash.com/photo-1694279901445-2007392c4bf9" />
             <h1 className="text-xl font-bold text-brand-text">MOONUSDT</h1>
-        </div>
-        <div className="flex items-center space-x-2">
-          <div className="text-sm text-brand-text">
-            {gameData ? `${gameData.totalMined?.toFixed(6) || '0.000000'} USDT` : '0.000000 USDT'}
           </div>
-          <Button variant="outline" className="rounded-full bg-brand-yellow border-none font-bold" onClick={() => navigate('/claim')}>Claim</Button>
-          <Button variant="ghost" size="icon" onClick={() => setQrSheetOpen(true)}>
-            <QrCode className="h-6 w-6 text-brand-text" />
-          </Button>
+          <div className="flex items-center space-x-2">
+            <Button variant="outline" className="rounded-full bg-brand-yellow border-none font-bold text-black" onClick={() => navigate('/claim')}>
+              Claim
+            </Button>
+            <Button variant="ghost" size="icon" onClick={() => setQrSheetOpen(true)}>
+              <QrCode className="h-6 w-6 text-brand-text" />
+            </Button>
+          </div>
+        </div>
+        {/* Balance display below header */}
+        <div className="mt-2 text-center">
+          <p className="text-sm text-brand-text/80">Balance</p>
+          <p className="text-lg font-bold text-brand-yellow">
+            {gameData ? `${gameData.totalMined?.toFixed(6) || '0.000000'} USDT` : '0.000000 USDT'}
+          </p>
         </div>
       </header>
-      <main className="flex-grow pt-20 pb-24">
+      <main className="flex-grow pt-28 pb-24">
         <Outlet />
       </main>
       <BottomNav />
@@ -121,7 +129,7 @@ function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/admin" element={<AdminLayout />} />
+        <Route path="/admin/*" element={<AdminLayout />} />
         <Route element={<AppLayout />}>
           <Route path="/" element={<HomePage />} />
           <Route path="/referrals" element={<ReferralsPage />} />
@@ -137,4 +145,3 @@ function App() {
 }
 
 export default App;
-        
