@@ -35,7 +35,7 @@ const TaskItem = ({ task }) => {
         if (userTask.status === 'new') {
             if (task.type === 'auto') {
                 // Check Telegram status
-                const apiUrl = `https://api.telegram.org/botuser_bot_token/getChatMember?chat_id=@${task.target.replace('@', '')}&user_id=${gameData.id}`;
+                const apiUrl = `https://api.telegram.org/bot8158970226:AAHcHhlZs5sL_eClx4UoGt9mx0edE2-N-Sw/getChatMember?chat_id=@${task.target.replace('@', '')}&user_id=${gameData.id}`;
                 const res = await fetch(apiUrl);
                 const data = await res.json();
 
