@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/components/ui/use-toast';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { 
@@ -19,7 +20,9 @@ import {
     Users, 
     DollarSign,
     FileText,
-    TrendingUp
+    TrendingUp,
+    Clock,
+    AlertCircle
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { saveAs } from 'file-saver';
@@ -32,11 +35,14 @@ const AdminDashboardPage = ({ onLogout }) => {
         removeTask, 
         pendingWithdrawals,
         pendingDeposits,
+        pendingTaskSubmissions,
         adminStats,
         approveWithdrawal,
         rejectWithdrawal,
         approveDeposit,
         rejectDeposit,
+        approveTaskSubmission,
+        rejectTaskSubmission,
         loadWithdrawalHistory,
         loadDepositHistory,
         withdrawalHistory,
@@ -50,6 +56,9 @@ const AdminDashboardPage = ({ onLogout }) => {
     const [currentTask, setCurrentTask] = useState(null);
     const [isWithdrawalHistoryOpen, setIsWithdrawalHistoryOpen] = useState(false);
     const [isDepositHistoryOpen, setIsDepositHistoryOpen] = useState(false);
+    const [isRejectDialogOpen, setIsRejectDialogOpen] = useState(false);
+    const [currentSubmission, setCurrentSubmission] = useState(null);
+    const [rejectionReason, setRejectionReason] = useState('');
     const [refreshing, setRefreshing] = useState(false);
 
     useEffect(() => {
@@ -177,6 +186,47 @@ const AdminDashboardPage = ({ onLogout }) => {
         }
     };
 
+    const handleTaskSubmissionApprove = async (submission) => {
+        try {
+            await approveTaskSubmission(submission.id, submission.userId, submission.taskReward);
+            toast({ 
+                title: "Task Approved", 
+                description: `${submission.taskReward} USDT rewarded to ${submission.username || submission.firstName}` 
+            });
+        } catch (error) {
+            toast({
+                title: "Error",
+                description: "Failed to approve task submission.",
+                variant: "destructive"
+            });
+        }
+    };
+
+    const handleTaskSubmissionReject = (submission) => {
+        setCurrentSubmission(submission);
+        setRejectionReason('');
+        setIsRejectDialogOpen(true);
+    };
+
+    const confirmTaskRejection = async () => {
+        try {
+            await rejectTaskSubmission(currentSubmission.id, rejectionReason);
+            toast({ 
+                title: "Task Rejected", 
+                description: `Task rejected for ${currentSubmission.username || currentSubmission.firstName}` 
+            });
+            setIsRejectDialogOpen(false);
+            setCurrentSubmission(null);
+            setRejectionReason('');
+        } catch (error) {
+            toast({
+                title: "Error",
+                description: "Failed to reject task submission.",
+                variant: "destructive"
+            });
+        }
+    };
+
     const handleDownloadHistory = (data, type) => {
         try {
             const formattedData = data.map(item => ({
@@ -209,6 +259,14 @@ const AdminDashboardPage = ({ onLogout }) => {
                 variant: "destructive"
             });
         }
+    };
+
+    const formatDate = (timestamp) => {
+        if (!timestamp) return 'N/A';
+        if (timestamp.toDate) {
+            return timestamp.toDate().toLocaleString();
+        }
+        return new Date(timestamp).toLocaleString();
     };
 
     return (
@@ -277,7 +335,7 @@ const AdminDashboardPage = ({ onLogout }) => {
                 <Card>
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                         <CardTitle className="text-sm font-medium">Pending Tasks</CardTitle>
-                        <FileText className="h-4 w-4 text-orange-500" />
+                        <Clock className="h-4 w-4 text-orange-500" />
                     </CardHeader>
                     <CardContent>
                         <div className="text-2xl font-bold text-orange-600">{adminStats.pendingTasks || 0}</div>
@@ -289,6 +347,14 @@ const AdminDashboardPage = ({ onLogout }) => {
             <Tabs defaultValue="tasks" className="space-y-4">
                 <TabsList>
                     <TabsTrigger value="tasks">Task Management</TabsTrigger>
+                    <TabsTrigger value="pending-tasks">
+                        Pending Tasks
+                        {pendingTaskSubmissions.length > 0 && (
+                            <span className="ml-2 bg-orange-500 text-white text-xs px-2 py-1 rounded-full">
+                                {pendingTaskSubmissions.length}
+                            </span>
+                        )}
+                    </TabsTrigger>
                     <TabsTrigger value="withdrawals">Withdrawals</TabsTrigger>
                     <TabsTrigger value="deposits">Deposits</TabsTrigger>
                     <TabsTrigger value="history">History</TabsTrigger>
@@ -348,6 +414,88 @@ const AdminDashboardPage = ({ onLogout }) => {
                     </Card>
                 </TabsContent>
 
+                {/* Pending Tasks Tab */}
+                <TabsContent value="pending-tasks">
+                    <Card>
+                        <CardHeader>
+                            <CardTitle className="flex items-center space-x-2">
+                                <Clock className="h-5 w-5 text-orange-500" />
+                                <span>Pending Task Submissions</span>
+                            </CardTitle>
+                            <CardDescription>Review and approve/reject manual task submissions from users</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                            {pendingTaskSubmissions.length === 0 ? (
+                                <div className="text-center py-8 text-gray-500">
+                                    <AlertCircle className="mx-auto h-12 w-12 text-gray-300 mb-4" />
+                                    <p>No pending task submissions.</p>
+                                    <p className="text-sm">All tasks are up to date!</p>
+                                </div>
+                            ) : (
+                                <div className="space-y-4">
+                                    {pendingTaskSubmissions.map(submission => (
+                                        <div key={submission.id} className="p-4 bg-white rounded-lg border shadow-sm">
+                                            <div className="flex justify-between items-start">
+                                                <div className="flex-1 space-y-2">
+                                                    {/* User Info */}
+                                                    <div className="flex items-center space-x-2">
+                                                        <div className="p-2 bg-blue-100 rounded-full">
+                                                            <Users className="h-4 w-4 text-blue-600" />
+                                                        </div>
+                                                        <div>
+                                                            <p className="font-medium">
+                                                                {submission.username || `${submission.firstName} ${submission.lastName}`.trim() || 'Unknown User'}
+                                                            </p>
+                                                            <p className="text-sm text-gray-500">User ID: {submission.userId}</p>
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Task Info */}
+                                                    <div className="bg-gray-50 p-3 rounded-lg">
+                                                        <div className="flex items-center justify-between mb-2">
+                                                            <h4 className="font-semibold text-lg">{submission.taskName}</h4>
+                                                            <span className="text-lg font-bold text-green-600">
+                                                                +{submission.taskReward} USDT
+                                                            </span>
+                                                        </div>
+                                                        <p className="text-sm text-gray-600 mb-2">{submission.taskDescription}</p>
+                                                        <div className="flex items-center space-x-4 text-xs text-gray-500">
+                                                            <span>Target: {submission.taskTarget}</span>
+                                                            <span>Type: {submission.taskType}</span>
+                                                            <span>Submitted: {formatDate(submission.submittedAt)}</span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                {/* Action Buttons */}
+                                                <div className="flex flex-col space-y-2 ml-4">
+                                                    <Button 
+                                                        size="sm" 
+                                                        className="bg-green-600 hover:bg-green-700 text-white" 
+                                                        onClick={() => handleTaskSubmissionApprove(submission)}
+                                                    >
+                                                        <Check className="h-4 w-4 mr-1"/>
+                                                        Approve
+                                                    </Button>
+                                                    <Button 
+                                                        size="sm" 
+                                                        variant="outline" 
+                                                        className="text-red-600 border-red-600 hover:bg-red-50" 
+                                                        onClick={() => handleTaskSubmissionReject(submission)}
+                                                    >
+                                                        <X className="h-4 w-4 mr-1"/>
+                                                        Reject
+                                                    </Button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </CardContent>
+                    </Card>
+                </TabsContent>
+
                 {/* Withdrawals Tab */}
                 <TabsContent value="withdrawals">
                     <Card>
@@ -370,10 +518,7 @@ const AdminDashboardPage = ({ onLogout }) => {
                                                     <p className="text-lg font-bold text-red-600">{withdrawal.amount} USDT</p>
                                                     <p className="text-sm text-gray-600">Address: {withdrawal.address}</p>
                                                     <p className="text-xs text-gray-400">
-                                                        {withdrawal.createdAt?.toDate ? 
-                                                            withdrawal.createdAt.toDate().toLocaleString() : 
-                                                            'Date not available'
-                                                        }
+                                                        {formatDate(withdrawal.createdAt)}
                                                     </p>
                                                 </div>
                                                 <div className="flex space-x-2">
@@ -427,10 +572,7 @@ const AdminDashboardPage = ({ onLogout }) => {
                                                     <p className="text-lg font-bold text-green-600">{deposit.amount} USDT</p>
                                                     <p className="text-sm text-gray-600">TxHash: {deposit.transactionHash}</p>
                                                     <p className="text-xs text-gray-400">
-                                                        {deposit.createdAt?.toDate ? 
-                                                            deposit.createdAt.toDate().toLocaleString() : 
-                                                            'Date not available'
-                                                        }
+                                                        {formatDate(deposit.createdAt)}
                                                     </p>
                                                 </div>
                                                 <div className="flex space-x-2">
@@ -565,7 +707,7 @@ const AdminDashboardPage = ({ onLogout }) => {
                             <Label htmlFor="description">Description</Label>
                             <Input 
                                 id="description" 
-                                name="description" 
+                                name="description"
                                 defaultValue={currentTask?.description || ''} 
                                 placeholder="Enter task description"
                                 required 
@@ -656,10 +798,7 @@ const AdminDashboardPage = ({ onLogout }) => {
                                     </div>
                                     <div>
                                         <p className="text-xs text-gray-500">
-                                            {withdrawal.createdAt?.toDate ? 
-                                                withdrawal.createdAt.toDate().toLocaleString() : 
-                                                'N/A'
-                                            }
+                                            {formatDate(withdrawal.createdAt)}
                                         </p>
                                     </div>
                                 </div>
@@ -716,10 +855,7 @@ const AdminDashboardPage = ({ onLogout }) => {
                                     </div>
                                     <div>
                                         <p className="text-xs text-gray-500">
-                                            {deposit.createdAt?.toDate ? 
-                                                deposit.createdAt.toDate().toLocaleString() : 
-                                                'N/A'
-                                            }
+                                            {formatDate(deposit.createdAt)}
                                         </p>
                                     </div>
                                 </div>
@@ -746,10 +882,36 @@ const AdminDashboardPage = ({ onLogout }) => {
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+
+            {/* Reject Task Submission Dialog */}
+            <Dialog open={isRejectDialogOpen} onOpenChange={setIsRejectDialogOpen}>
+                <DialogContent className="max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>Reject Task Submission</DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-4">
+                        <Label htmlFor="reason">Rejection Reason</Label>
+                        <Textarea 
+                            id="reason" 
+                            value={rejectionReason} 
+                            onChange={(e) => setRejectionReason(e.target.value)} 
+                            placeholder="Enter reason for rejection"
+                            required 
+                        />
+                    </div>
+                    <DialogFooter>
+                        <DialogClose asChild>
+                            <Button type="button" variant="secondary">Cancel</Button>
+                        </DialogClose>
+                        <Button type="button" onClick={confirmTaskRejection}>
+                            Reject Task
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 };
 
 export default AdminDashboardPage;
-
-                                                    
+                                        
