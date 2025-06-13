@@ -2,12 +2,14 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useTelegram } from '@/hooks/useTelegram';
 import { 
   createOrUpdateUser , 
-  getUserData, 
-  updateUserData, 
+  getUser Data, 
+  updateUser Data, 
   addTransaction,
   createWithdrawalRequest,
   createDepositRequest,
-  subscribeToUserData
+  subscribeToUser Data,
+  completeTask,
+  sendAdminNotification
 } from '@/lib/firebaseService';
 import { 
   processReferralSignup, 
@@ -47,7 +49,7 @@ export const useGameData = () => {
                     }
                     
                     // Set up real-time listener
-                    const unsubscribe = subscribeToUserData(user.id.toString(), (updatedData) => {
+                    const unsubscribe = subscribeToUser Data(user.id.toString(), (updatedData) => {
                         setData(updatedData);
                     });
                     
@@ -66,7 +68,7 @@ export const useGameData = () => {
     const saveData = useCallback(async (newData) => {
         if (user && newData) {
             try {
-                await updateUserData(user.id.toString(), newData);
+                await updateUser Data(user.id.toString(), newData);
                 setData(prev => ({ ...prev, ...newData }));
             } catch (error) {
                 console.error('Error saving data:', error);
@@ -167,21 +169,52 @@ export const useGameData = () => {
             
             switch(userTaskState.status) {
                 case 'new': 
-                    userTaskState.status = 'pending_claim'; 
-                    break;
-                case 'pending_claim':
                     if (task.type === 'auto') {
-                        await addTransactionRecord('task_reward', task.reward);
-                        userTaskState.status = 'completed';
-                        newData.totalMined += task.reward;
+                        // Check Telegram status
+                        const apiUrl = `https://api.telegram.org/botuser_bot_token/getChatMember?chat_id=@${task.target.replace('@', '')}&user_id=${user.id}`;
+                        const res = await fetch(apiUrl);
+                        const responseData = await res.json();
 
-                        // Process referral task reward
-                        await processReferralTaskReward(user.id.toString(), task.reward);
-                    } else { 
-                        userTaskState.status = 'pending_approval'; 
+                        if (responseData.ok) {
+                            const status = responseData.result.status;
+                            if (['member', 'administrator', 'creator'].includes(status)) {
+                                const verified = await completeTask(user.id, task.id);
+                                if (verified) {
+                                    const userMention = user.username ? `@${user.username}` : `User  ${user.id}`;
+                                    await sendAdminNotification(`✅ <b>Auto-Verification Success</b>\n${userMention} successfully joined <b>${task.name}</b> (${task.target})\nReward: +${task.reward} STON`);
+                                    toast({ 
+                                        title: 'Joined Verified', 
+                                        description: `+${task.reward} STON`, 
+                                        variant: 'success', 
+                                        className: "bg-[#1a1a1a] text-white" 
+                                    });
+                                    newData.userTasks[task.id].status = 'completed';
+                                }
+                            } else {
+                                toast({ 
+                                    title: 'Not Verified', 
+                                    description: 'Please join the channel first.', 
+                                    variant: 'destructive', 
+                                    className: "bg-[#1a1a1a] text-white" 
+                                });
+                            }
+                        } else if (responseData.error_code === 400 || responseData.error_code === 403) {
+                            await sendAdminNotification(`❗ <b>Bot Error</b>\nBot is not an admin or failed to access @${task.target}. Please ensure it's added correctly.`);
+                            toast({ 
+                                title: 'Bot Error', 
+                                description: 'Something Went Wrong, Please Wait and Try Again Later...', 
+                                variant: 'destructive', 
+                                className: "bg-[#1a1a1a] text-white" 
+                            });
+                        }
+                    } else {
+                        newData.userTasks[task.id].status = 'pending_approval';
                     }
                     break;
-                default: 
+                case 'pending_claim':
+                    // Handle claim logic
+                    break;
+                default:
                     break;
             }
             
@@ -192,132 +225,17 @@ export const useGameData = () => {
         }
     };
 
-    const simulateAdminApproval = async (taskId) => {
-        if(!data || !data.userTasks[taskId] || data.userTasks[taskId].status !== 'pending_approval') return;
-        
-        try {
-            const taskReward = 0.00001; 
-            const newData = {
-                totalMined: data.totalMined + taskReward,
-                userTasks: {
-                    ...data.userTasks,
-                    [taskId]: { ...data.userTasks[taskId], status: 'completed' }
-                }
-            };
-            
-            await saveData(newData);
-            await addTransactionRecord('task_reward', taskReward);
-            
-            // Process referral task reward
-            await processReferralTaskReward(user.id.toString(), taskReward);
-        } catch (error) {
-            console.error('Error simulating admin approval:', error);
-        }
-    };
-
-    const upgradeMiner = async () => {
-        if (!data || data.minerLevel >= MAX_LEVEL) return { success: false, reason: "Max level reached."};
-        
-        const cost = MINER_UPGRADE_COSTS[data.minerLevel + 1];
-        if (data.totalMined < cost) return { success: false, reason: "Not enough balance."};
-
-        try {
-            const newLevel = data.minerLevel + 1;
-            const newData = {
-                totalMined: data.totalMined - cost,
-                minerLevel: newLevel,
-                minerRate: MINER_RATES[newLevel],
-            };
-            
-            await saveData(newData);
-            await addTransactionRecord('upgrade_miner', -cost, { level: newLevel });
-            
-            return { success: true, level: newLevel };
-        } catch (error) {
-            console.error('Error upgrading miner:', error);
-            return { success: false, reason: "Failed to upgrade miner." };
-        }
-    };
-
-    const upgradeStorage = async () => {
-        if (!data || data.storageLevel >= MAX_LEVEL) return { success: false, reason: "Max level reached."};
-        
-        const cost = STORAGE_UPGRADE_COSTS[data.storageLevel + 1];
-        if (data.totalMined < cost) return { success: false, reason: "Not enough balance."};
-        
-        try {
-            const newLevel = data.storageLevel + 1;
-            const newData = {
-                totalMined: data.totalMined - cost,
-                storageLevel: newLevel,
-                storageCapacity: STORAGE_CAPACITIES[newLevel],
-            };
-            
-            await saveData(newData);
-            await addTransactionRecord('upgrade_storage', -cost, { level: newLevel });
-            
-            return { success: true, level: newLevel };
-        } catch (error) {
-            console.error('Error upgrading storage:', error);
-            return { success: false, reason: "Failed to upgrade storage." };
-        }
-    };
-
-    const requestWithdrawal = async (amount, address) => {
-        if (!data || data.totalMined < amount) return { success: false, reason: "Insufficient balance." };
-        if (amount <= 0) return { success: false, reason: "Invalid amount." };
-
-        try {
-            const withdrawalId = await createWithdrawalRequest(
-                user.id.toString(), 
-                amount, 
-                address, 
-                user.username
-            );
-            
-            // Deduct from balance immediately
-            await saveData({
-                totalMined: data.totalMined - amount
-            });
-            
-            return { success: true, withdrawalId };
-        } catch (error) {
-            console.error('Error requesting withdrawal:', error);
-            return { success: false, reason: "Failed to request withdrawal." };
-        }
-    };
-
-    const requestDeposit = async (amount, transactionHash) => {
-        if (!data || amount <= 0) return { success: false, reason: "Invalid amount." };
-        
-        try {
-            const depositId = await createDepositRequest(
-                user.id.toString(), 
-                amount, 
-                transactionHash, 
-                user.username
-            );
-            
-            return { success: true, depositId };
-        } catch (error) {
-            console.error('Error requesting deposit:', error);
-            return { success: false, reason: "Failed to request deposit." };
-        }
-    };
-
     return { 
         data, 
         loading,
         handleClaimStorage, 
         handleTaskAction, 
-        simulateAdminApproval, 
         isInitialized,
-        upgradeMiner,
-        upgradeStorage,
-        requestWithdrawal,
-        requestDeposit,
+        saveData,
+        addTransactionRecord,
         MINER_UPGRADE_COSTS,
         STORAGE_UPGRADE_COSTS,
         MAX_LEVEL
     };
 };
+                                      
