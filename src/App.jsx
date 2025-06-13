@@ -60,13 +60,6 @@ const AppLayout = () => {
             </Button>
           </div>
         </div>
-        {/* Balance display below header */}
-        <div className="mt-2 text-center">
-          <p className="text-sm text-brand-text/80">Balance</p>
-          <p className="text-lg font-bold text-brand-yellow">
-            {gameData ? `${gameData.totalMined?.toFixed(6) || '0.000000'} USDT` : '0.000000 USDT'}
-          </p>
-        </div>
       </header>
       <main className="flex-grow pt-28 pb-24">
         <Outlet />
