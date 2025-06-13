@@ -6,10 +6,16 @@ import { Label } from '@/components/ui/label';
 
 const AdminLoginPage = ({ onLogin, error }) => {
     const [password, setPassword] = useState('');
+    const [loading, setLoading] = useState(false);
 
-    const handleSubmit = (e) => {
+    const handleSubmit = async (e) => {
         e.preventDefault();
-        onLogin(password);
+        setLoading(true);
+        try {
+            await onLogin(password);
+        } finally {
+            setLoading(false);
+        }
     };
 
     return (
@@ -19,7 +25,7 @@ const AdminLoginPage = ({ onLogin, error }) => {
                     <CardHeader>
                         <CardTitle className="text-2xl">Admin Login</CardTitle>
                         <CardDescription>
-                            Enter your password to access the dashboard. For demo: 'admin'
+                            Enter your password to access the dashboard.
                         </CardDescription>
                     </CardHeader>
                     <CardContent className="grid gap-4">
@@ -31,12 +37,15 @@ const AdminLoginPage = ({ onLogin, error }) => {
                                 value={password}
                                 onChange={(e) => setPassword(e.target.value)}
                                 required 
+                                disabled={loading}
                             />
                         </div>
                         {error && <p className="text-sm text-red-600">{error}</p>}
                     </CardContent>
                     <CardFooter>
-                        <Button type="submit" className="w-full">Sign in</Button>
+                        <Button type="submit" className="w-full" disabled={loading}>
+                            {loading ? 'Signing in...' : 'Sign in'}
+                        </Button>
                     </CardFooter>
                 </form>
             </Card>
