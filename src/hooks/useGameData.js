@@ -1,14 +1,19 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useTelegram } from '@/hooks/useTelegram';
 import { 
-  createOrUpdateUser, 
-  getUserData, 
-  updateUserData, 
+  createOrUpdateUser , 
+  getUser Data, 
+  updateUser Data, 
   addTransaction,
   createWithdrawalRequest,
   createDepositRequest,
-  subscribeToUserData
+  subscribeToUser Data
 } from '@/lib/firebaseService';
+import { 
+  processReferralSignup, 
+  processReferralTaskReward,
+  extractReferrerIdFromStartParam 
+} from '@/lib/referralService';
 
 const CLAIM_FEE = 0.000007;
 const MINER_UPGRADE_COSTS = [0, 0.05, 0.1, 0.2];
@@ -18,25 +23,31 @@ const STORAGE_CAPACITIES = [0, 0.000027 * 2, 0.000054 * 2, 0.000108 * 2];
 const MAX_LEVEL = 3;
 
 export const useGameData = () => {
-    const { user } = useTelegram();
+    const { user, startParam } = useTelegram();
     const [data, setData] = useState(null);
     const [isInitialized, setIsInitialized] = useState(false);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        const initializeUser = async () => {
+        const initializeUser  = async () => {
             if (user) {
                 try {
                     setLoading(true);
                     
                     // Create or update user in Firebase
                     const telegramData = { user };
-                    const userData = await createOrUpdateUser(telegramData);
+                    const userData = await createOrUpdateUser (telegramData);
                     setData(userData);
                     setIsInitialized(true);
                     
+                    // Process referral if exists
+                    const referrerId = extractReferrerIdFromStartParam(startParam);
+                    if (referrerId) {
+                        await processReferralSignup(user.id.toString(), referrerId);
+                    }
+                    
                     // Set up real-time listener
-                    const unsubscribe = subscribeToUserData(user.id.toString(), (updatedData) => {
+                    const unsubscribe = subscribeToUser Data(user.id.toString(), (updatedData) => {
                         setData(updatedData);
                     });
                     
@@ -49,13 +60,13 @@ export const useGameData = () => {
             }
         };
 
-        initializeUser();
-    }, [user]);
+        initializeUser ();
+    }, [user, startParam]);
 
     const saveData = useCallback(async (newData) => {
         if (user && newData) {
             try {
-                await updateUserData(user.id.toString(), newData);
+                await updateUser Data(user.id.toString(), newData);
                 setData(prev => ({ ...prev, ...newData }));
             } catch (error) {
                 console.error('Error saving data:', error);
@@ -163,6 +174,9 @@ export const useGameData = () => {
                         await addTransactionRecord('task_reward', task.reward);
                         userTaskState.status = 'completed';
                         newData.totalMined += task.reward;
+
+                        // Process referral task reward
+                        await processReferralTaskReward(user.id.toString(), task.reward);
                     } else { 
                         userTaskState.status = 'pending_approval'; 
                     }
@@ -193,6 +207,9 @@ export const useGameData = () => {
             
             await saveData(newData);
             await addTransactionRecord('task_reward', taskReward);
+            
+            // Process referral task reward
+            await processReferralTaskReward(user.id.toString(), taskReward);
         } catch (error) {
             console.error('Error simulating admin approval:', error);
         }
