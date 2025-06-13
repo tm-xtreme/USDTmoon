@@ -1,4 +1,3 @@
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -25,6 +24,11 @@
     --input: 220 13% 89%;
     --ring: 224 71.4% 4.1%;
     --radius: 0.75rem;
+    
+    /* Brand colors */
+    --brand-bg: 240 10% 3.9%;
+    --brand-text: 0 0% 98%;
+    --brand-yellow: 45 96% 64%;
   }
  
   .dark {
@@ -57,5 +61,17 @@
   }
   body {
     @apply bg-brand-bg text-brand-text antialiased;
+  }
+}
+
+@layer utilities {
+  .bg-brand-bg {
+    background-color: hsl(var(--brand-bg));
+  }
+  .text-brand-text {
+    color: hsl(var(--brand-text));
+  }
+  .bg-brand-yellow {
+    background-color: hsl(var(--brand-yellow));
   }
 }
