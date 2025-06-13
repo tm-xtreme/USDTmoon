@@ -25,10 +25,10 @@
     --ring: 224 71.4% 4.1%;
     --radius: 0.75rem;
     
-    /* Brand colors */
-    --brand-bg: 240 10% 3.9%;
-    --brand-text: 0 0% 98%;
-    --brand-yellow: 45 96% 64%;
+    /* Brand colors - Light Cream Theme */
+    --brand-bg: 48 100% 97%; /* Light cream background */
+    --brand-text: 25 25% 15%; /* Dark brown text */
+    --brand-yellow: 45 96% 64%; /* Bright yellow */
   }
  
   .dark {
@@ -73,5 +73,8 @@
   }
   .bg-brand-yellow {
     background-color: hsl(var(--brand-yellow));
+  }
+  .text-brand-yellow {
+    color: hsl(var(--brand-yellow));
   }
 }
