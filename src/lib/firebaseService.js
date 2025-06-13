@@ -436,7 +436,7 @@ const generateReferralCode = () => {
 };
 
 // Real-time listeners
-export const subscribeToUser Data = (userId, callback) => {
+export const subscribeToUserData = (userId, callback) => {
   const userRef = doc(db, 'users', userId);
   return onSnapshot(userRef, (doc) => {
     if (doc.exists()) {
