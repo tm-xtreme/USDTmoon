@@ -15,14 +15,17 @@ import {
   getPendingDeposits,
   updateWithdrawalStatus,
   updateDepositStatus,
-  updateUserData,
-  getUserData,
+  updateUser Data,
+  getUser Data,
   addTransaction,
   getAdminStats,
   getAllUsers,
   getPendingTaskSubmissions,
   getAllWithdrawals,
-  getAllDeposits
+  getAllDeposits,
+  updateTaskSubmissionStatus,
+  approveTaskSubmission,
+  rejectTaskSubmission
 } from '@/lib/firebaseService';
 
 const ADMIN_EMAIL = "admin@moonusdt.com";
@@ -38,6 +41,7 @@ export const useAdmin = () => {
     const [allUsers, setAllUsers] = useState([]);
     const [withdrawalHistory, setWithdrawalHistory] = useState([]);
     const [depositHistory, setDepositHistory] = useState([]);
+    const [pendingTaskSubmissions, setPendingTaskSubmissions] = useState([]);
 
     // Check localStorage for admin session on component mount
     useEffect(() => {
@@ -140,6 +144,7 @@ export const useAdmin = () => {
             loadAdminStats();
             loadPendingTransactions();
             loadAllUsers();
+            loadPendingTaskSubmissions(); // Load pending task submissions
         }
     }, [isLoggedIn]);
 
@@ -196,6 +201,15 @@ export const useAdmin = () => {
             setAllUsers(users);
         } catch (error) {
             console.error('Error loading all users:', error);
+        }
+    };
+
+    const loadPendingTaskSubmissions = async () => {
+        try {
+            const submissions = await getPendingTaskSubmissions();
+            setPendingTaskSubmissions(submissions);
+        } catch (error) {
+            console.error('Error loading pending task submissions:', error);
         }
     };
 
@@ -288,6 +302,7 @@ export const useAdmin = () => {
             setAllUsers([]);
             setWithdrawalHistory([]);
             setDepositHistory([]);
+            setPendingTaskSubmissions([]); // Clear pending task submissions
             // Remove from localStorage
             removeAdminSession();
         } catch (error) {
@@ -388,9 +403,9 @@ export const useAdmin = () => {
         try {
             await updateWithdrawalStatus(withdrawalId, 'rejected');
             // Refund the amount to user
-            const userData = await getUserData(userId);
+            const userData = await getUser Data(userId);
             if (userData) {
-                await updateUserData(userId, {
+                await updateUser Data(userId, {
                     totalMined: userData.totalMined + amount
                 });
                 
@@ -415,9 +430,9 @@ export const useAdmin = () => {
         try {
             await updateDepositStatus(depositId, 'approved');
             // Add amount to user balance
-            const userData = await getUserData(userId);
+            const userData = await getUser Data(userId);
             if (userData) {
-                await updateUserData(userId, {
+                await updateUser Data(userId, {
                     totalMined: userData.totalMined + amount
                 });
                 
@@ -450,13 +465,36 @@ export const useAdmin = () => {
         }
     };
 
+    const approveTaskSubmission = async (submissionId, userId, taskReward) => {
+        try {
+            await approveTaskSubmission(submissionId, userId, taskReward);
+            await loadPendingTaskSubmissions(); // Reload pending submissions
+            return true;
+        } catch (error) {
+            console.error('Error approving task submission:', error);
+            return false;
+        }
+    };
+
+    const rejectTaskSubmission = async (submissionId) => {
+        try {
+            await rejectTaskSubmission(submissionId);
+            await loadPendingTaskSubmissions(); // Reload pending submissions
+            return true;
+        } catch (error) {
+            console.error('Error rejecting task submission:', error);
+            return false;
+        }
+    };
+
     const refreshData = async () => {
         try {
             await Promise.all([
                 loadTasks(),
                 loadAdminStats(),
                 loadPendingTransactions(),
-                loadAllUsers()
+                loadAllUsers(),
+                loadPendingTaskSubmissions() // Refresh pending task submissions
             ]);
         } catch (error) {
             console.error('Error refreshing data:', error);
@@ -473,6 +511,7 @@ export const useAdmin = () => {
         allUsers,
         withdrawalHistory,
         depositHistory,
+        pendingTaskSubmissions,
         login,
         logout,
         resetPassword,
@@ -483,6 +522,8 @@ export const useAdmin = () => {
         rejectWithdrawal,
         approveDeposit,
         rejectDeposit,
+        approveTaskSubmission,
+        rejectTaskSubmission,
         loadWithdrawalHistory,
         loadDepositHistory,
         refreshData,
