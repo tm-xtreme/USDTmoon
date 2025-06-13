@@ -2,12 +2,12 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useTelegram } from '@/hooks/useTelegram';
 import { 
   createOrUpdateUser , 
-  getUser Data, 
-  updateUser Data, 
+  getUserData, 
+  updateUserData, 
   addTransaction,
   createWithdrawalRequest,
   createDepositRequest,
-  subscribeToUser Data
+  subscribeToUserData
 } from '@/lib/firebaseService';
 import { 
   processReferralSignup, 
@@ -47,7 +47,7 @@ export const useGameData = () => {
                     }
                     
                     // Set up real-time listener
-                    const unsubscribe = subscribeToUser Data(user.id.toString(), (updatedData) => {
+                    const unsubscribe = subscribeToUserData(user.id.toString(), (updatedData) => {
                         setData(updatedData);
                     });
                     
@@ -66,7 +66,7 @@ export const useGameData = () => {
     const saveData = useCallback(async (newData) => {
         if (user && newData) {
             try {
-                await updateUser Data(user.id.toString(), newData);
+                await updateUserData(user.id.toString(), newData);
                 setData(prev => ({ ...prev, ...newData }));
             } catch (error) {
                 console.error('Error saving data:', error);
