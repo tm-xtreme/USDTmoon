@@ -112,8 +112,12 @@ const TaskItem = ({ task }) => {
 };
 
 const TasksPage = () => {
-    const { tasks } = useAdmin();
+    const { tasks, loadTasks } = useAdmin();
     const { data: gameData } = useGameData();
+
+    useEffect(() => {
+        loadTasks(); // Fetch tasks from Firestore on component mount
+    }, [loadTasks]);
 
     if (!gameData) {
         return <div className="p-4 text-center">Loading tasks...</div>
@@ -161,4 +165,3 @@ const TasksPage = () => {
 };
 
 export default TasksPage;
-                                
