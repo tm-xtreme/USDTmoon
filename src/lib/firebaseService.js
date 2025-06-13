@@ -53,6 +53,7 @@ export const createOrUpdateUser = async (telegramData) => {
         // Additional fields
         referralCode: generateReferralCode(),
         referredBy: null,
+        referralCount: 0,
         createdAt: serverTimestamp()
       });
     } else {
@@ -110,7 +111,7 @@ export const getAdminStats = async () => {
       getCountFromServer(collection(db, 'tasks')),
       getCountFromServer(query(collection(db, 'withdrawals'), where('status', '==', 'pending'))),
       getCountFromServer(query(collection(db, 'deposits'), where('status', '==', 'pending'))),
-      getCountFromServer(query(collection(db, 'userTaskSubmissions'), where('status', '==', 'pending')))
+      getCountFromServer(query(collection(db, 'taskSubmissions'), where('status', '==', 'pending_approval')))
     ]);
 
     return {
@@ -154,7 +155,8 @@ export const getAllUsers = async (limitCount = 100) => {
 export const getAllTasks = async () => {
   try {
     const tasksRef = collection(db, 'tasks');
-    const querySnapshot = await getDocs(tasksRef);
+    const q = query(tasksRef, orderBy('createdAt', 'desc'));
+    const querySnapshot = await getDocs(q);
     
     const tasks = [];
     querySnapshot.forEach((doc) => {
@@ -174,7 +176,8 @@ export const addTask = async (taskData) => {
     const docRef = await addDoc(tasksRef, {
       ...taskData,
       reward: parseFloat(taskData.reward),
-      createdAt: serverTimestamp()
+      createdAt: serverTimestamp(),
+      isActive: true
     });
     return docRef.id;
   } catch (error) {
@@ -209,11 +212,40 @@ export const deleteTask = async (taskId) => {
   }
 };
 
-// Pending Task Submissions
+// Task Submissions Management
+export const createTaskSubmission = async (userId, taskId, taskData, userInfo) => {
+  try {
+    const submissionsRef = collection(db, 'taskSubmissions');
+    const docRef = await addDoc(submissionsRef, {
+      userId,
+      taskId,
+      taskName: taskData.name,
+      taskDescription: taskData.description,
+      taskReward: taskData.reward,
+      taskTarget: taskData.target,
+      taskType: taskData.type,
+      username: userInfo.username || '',
+      firstName: userInfo.firstName || '',
+      lastName: userInfo.lastName || '',
+      status: 'pending_approval',
+      submittedAt: serverTimestamp(),
+      createdAt: serverTimestamp()
+    });
+    return docRef.id;
+  } catch (error) {
+    console.error('Error creating task submission:', error);
+    throw error;
+  }
+};
+
 export const getPendingTaskSubmissions = async () => {
   try {
-    const submissionsRef = collection(db, 'userTaskSubmissions');
-    const q = query(submissionsRef, where('status', '==', 'pending'), orderBy('createdAt', 'desc'));
+    const submissionsRef = collection(db, 'taskSubmissions');
+    const q = query(
+      submissionsRef, 
+      where('status', '==', 'pending_approval'), 
+      orderBy('createdAt', 'desc')
+    );
     const querySnapshot = await getDocs(q);
     
     const submissions = [];
@@ -228,17 +260,109 @@ export const getPendingTaskSubmissions = async () => {
   }
 };
 
-export const updateTaskSubmissionStatus = async (submissionId, status) => {
+export const getAllTaskSubmissions = async (limitCount = 1000) => {
   try {
-    const submissionRef = doc(db, 'userTaskSubmissions', submissionId);
-    await updateDoc(submissionRef, {
+    const submissionsRef = collection(db, 'taskSubmissions');
+    const q = query(submissionsRef, orderBy('createdAt', 'desc'), limit(limitCount));
+    const querySnapshot = await getDocs(q);
+    
+    const submissions = [];
+    querySnapshot.forEach((doc) => {
+      submissions.push({ id: doc.id, ...doc.data() });
+    });
+    
+    return submissions;
+  } catch (error) {
+    console.error('Error getting all task submissions:', error);
+    throw error;
+  }
+};
+
+export const updateTaskSubmissionStatus = async (submissionId, status, reason = '') => {
+  try {
+    const submissionRef = doc(db, 'taskSubmissions', submissionId);
+    const updateData = {
       status,
       updatedAt: serverTimestamp()
-    });
+    };
+    
+    if (status === 'approved') {
+      updateData.approvedAt = serverTimestamp();
+    } else if (status === 'rejected') {
+      updateData.rejectedAt = serverTimestamp();
+      if (reason) {
+        updateData.rejectionReason = reason;
+      }
+    }
+    
+    await updateDoc(submissionRef, updateData);
     return true;
   } catch (error) {
     console.error('Error updating task submission status:', error);
     throw error;
+  }
+};
+
+export const getTaskSubmission = async (submissionId) => {
+  try {
+    const submissionRef = doc(db, 'taskSubmissions', submissionId);
+    const submissionSnap = await getDoc(submissionRef);
+    
+    if (submissionSnap.exists()) {
+      return { id: submissionSnap.id, ...submissionSnap.data() };
+    }
+    return null;
+  } catch (error) {
+    console.error('Error getting task submission:', error);
+    throw error;
+  }
+};
+
+// Complete Task Function (for auto tasks)
+export const completeTask = async (userId, taskId) => {
+  try {
+    const userRef = doc(db, 'users', userId);
+    const userSnap = await getDoc(userRef);
+    
+    if (!userSnap.exists()) {
+      return false;
+    }
+    
+    const userData = userSnap.data();
+    const userTasks = userData.userTasks || {};
+    
+    // Update user task status to completed
+    userTasks[taskId] = {
+      status: 'completed',
+      completedAt: new Date().toISOString()
+    };
+    
+    await updateDoc(userRef, {
+      userTasks,
+      updatedAt: serverTimestamp()
+    });
+    
+    return true;
+  } catch (error) {
+    console.error('Error completing task:', error);
+    return false;
+  }
+};
+
+// Send Admin Notification Function
+export const sendAdminNotification = async (message) => {
+  try {
+    const notificationsRef = collection(db, 'adminNotifications');
+    await addDoc(notificationsRef, {
+      message,
+      type: 'task_notification',
+      read: false,
+      createdAt: serverTimestamp()
+    });
+    return true;
+  } catch (error) {
+    console.error('Error sending admin notification:', error);
+    return false;
   }
 };
 
@@ -372,7 +496,7 @@ export const createDepositRequest = async (userId, amount, transactionHash, user
       status: 'pending',
       createdAt: serverTimestamp()
     });
-    
+
     return docRef.id;
   } catch (error) {
     console.error('Error creating deposit request:', error);
@@ -405,7 +529,7 @@ export const getAllDeposits = async (limitCount = 1000) => {
     const querySnapshot = await getDocs(q);
     
     const deposits = [];
-      querySnapshot.forEach((doc) => {
+    querySnapshot.forEach((doc) => {
       deposits.push({ id: doc.id, ...doc.data() });
     });
     
@@ -430,6 +554,78 @@ export const updateDepositStatus = async (depositId, status) => {
   }
 };
 
+// Task Approval/Rejection Functions
+export const approveTaskSubmission = async (submissionId, userId, taskReward) => {
+  try {
+    // Update submission status
+    await updateTaskSubmissionStatus(submissionId, 'approved');
+    
+    // Get user data and update balance
+    const userData = await getUserData(userId);
+    if (userData) {
+      await updateUserData(userId, {
+        totalMined: userData.totalMined + taskReward
+      });
+      
+      // Add transaction record
+      await addTransaction(userId, {
+        type: 'task_reward',
+        amount: taskReward,
+        submissionId: submissionId,
+        status: 'completed'
+      });
+    }
+    
+    return true;
+  } catch (error) {
+    console.error('Error approving task submission:', error);
+    throw error;
+  }
+};
+
+export const rejectTaskSubmission = async (submissionId, reason = '') => {
+  try {
+    await updateTaskSubmissionStatus(submissionId, 'rejected', reason);
+    return true;
+  } catch (error) {
+    console.error('Error rejecting task submission:', error);
+    throw error;
+  }
+};
+
+// Admin Notifications Management
+export const getAdminNotifications = async (limitCount = 50) => {
+  try {
+    const notificationsRef = collection(db, 'adminNotifications');
+    const q = query(notificationsRef, orderBy('createdAt', 'desc'), limit(limitCount));
+    const querySnapshot = await getDocs(q);
+    
+    const notifications = [];
+    querySnapshot.forEach((doc) => {
+      notifications.push({ id: doc.id, ...doc.data() });
+    });
+    
+    return notifications;
+  } catch (error) {
+    console.error('Error getting admin notifications:', error);
+    throw error;
+  }
+};
+
+export const markNotificationAsRead = async (notificationId) => {
+  try {
+    const notificationRef = doc(db, 'adminNotifications', notificationId);
+    await updateDoc(notificationRef, {
+      read: true,
+      readAt: serverTimestamp()
+    });
+    return true;
+  } catch (error) {
+    console.error('Error marking notification as read:', error);
+    throw error;
+  }
+};
+
 // Utility Functions
 const generateReferralCode = () => {
   return Math.random().toString(36).substring(2, 8).toUpperCase();
@@ -442,5 +638,31 @@ export const subscribeToUserData = (userId, callback) => {
     if (doc.exists()) {
       callback({ id: doc.id, ...doc.data() });
     }
+  });
+};
+
+export const subscribeToTaskSubmissions = (callback) => {
+  const submissionsRef = collection(db, 'taskSubmissions');
+  const q = query(submissionsRef, where('status', '==', 'pending_approval'), orderBy('createdAt', 'desc'));
+  
+  return onSnapshot(q, (querySnapshot) => {
+    const submissions = [];
+    querySnapshot.forEach((doc) => {
+      submissions.push({ id: doc.id, ...doc.data() });
+    });
+    callback(submissions);
+  });
+};
+
+export const subscribeToAdminNotifications = (callback) => {
+  const notificationsRef = collection(db, 'adminNotifications');
+  const q = query(notificationsRef, where('read', '==', false), orderBy('createdAt', 'desc'));
+  
+  return onSnapshot(q, (querySnapshot) => {
+    const notifications = [];
+    querySnapshot.forEach((doc) => {
+      notifications.push({ id: doc.id, ...doc.data() });
+    });
+    callback(notifications);
   });
 };
