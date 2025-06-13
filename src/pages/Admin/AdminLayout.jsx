@@ -4,19 +4,32 @@ import AdminLoginPage from '@/pages/Admin/AdminLoginPage';
 import AdminDashboardPage from '@/pages/Admin/AdminDashboardPage';
 
 const AdminLayout = () => {
-    const { isLoggedIn, login, logout, loading } = useAdmin();
+    const { isLoggedIn, login, logout, loading, resetPassword, adminEmail } = useAdmin();
     const [error, setError] = useState('');
 
-    const handleLogin = async (password) => {
+    const handleLogin = async (email, password) => {
         try {
-            const success = await login(password);
-            if (success) {
+            const result = await login(email, password);
+            if (result.success) {
                 setError('');
             } else {
-                setError('Invalid password. Please try again.');
+                setError(result.error || 'Invalid credentials. Please try again.');
             }
         } catch (error) {
             setError('Login failed. Please try again.');
+        }
+    };
+
+    const handleResetPassword = async (email) => {
+        try {
+            const result = await resetPassword(email);
+            if (!result.success) {
+                setError(result.error);
+            } else {
+                setError('');
+            }
+        } catch (error) {
+            setError('Failed to send password reset email. Please try again.');
         }
     };
 
@@ -34,7 +47,12 @@ const AdminLayout = () => {
     return isLoggedIn ? (
         <AdminDashboardPage onLogout={logout} />
     ) : (
-        <AdminLoginPage onLogin={handleLogin} error={error} />
+        <AdminLoginPage 
+            onLogin={handleLogin} 
+            error={error} 
+            onResetPassword={handleResetPassword} 
+            adminEmail={adminEmail} // Pass the admin email for pre-filling
+        />
     );
 };
 
