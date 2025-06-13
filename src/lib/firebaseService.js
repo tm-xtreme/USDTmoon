@@ -11,7 +11,9 @@ import {
   orderBy,
   serverTimestamp,
   deleteDoc,
-  onSnapshot
+  onSnapshot,
+  getCountFromServer,
+  limit
 } from 'firebase/firestore';
 import { db } from './firebase';
 
@@ -94,6 +96,60 @@ export const updateUserData = async (userId, updateData) => {
   }
 };
 
+// Admin Statistics
+export const getAdminStats = async () => {
+  try {
+    const [
+      totalUsersSnapshot,
+      totalTasksSnapshot,
+      pendingWithdrawalsSnapshot,
+      pendingDepositsSnapshot,
+      pendingTasksSnapshot
+    ] = await Promise.all([
+      getCountFromServer(collection(db, 'users')),
+      getCountFromServer(collection(db, 'tasks')),
+      getCountFromServer(query(collection(db, 'withdrawals'), where('status', '==', 'pending'))),
+      getCountFromServer(query(collection(db, 'deposits'), where('status', '==', 'pending'))),
+      getCountFromServer(query(collection(db, 'userTaskSubmissions'), where('status', '==', 'pending')))
+    ]);
+
+    return {
+      totalUsers: totalUsersSnapshot.data().count,
+      totalTasks: totalTasksSnapshot.data().count,
+      pendingWithdrawals: pendingWithdrawalsSnapshot.data().count,
+      pendingDeposits: pendingDepositsSnapshot.data().count,
+      pendingTasks: pendingTasksSnapshot.data().count
+    };
+  } catch (error) {
+    console.error('Error getting admin stats:', error);
+    return {
+      totalUsers: 0,
+      totalTasks: 0,
+      pendingWithdrawals: 0,
+      pendingDeposits: 0,
+      pendingTasks: 0
+    };
+  }
+};
+
+export const getAllUsers = async (limitCount = 100) => {
+  try {
+    const usersRef = collection(db, 'users');
+    const q = query(usersRef, orderBy('createdAt', 'desc'), limit(limitCount));
+    const querySnapshot = await getDocs(q);
+    
+    const users = [];
+    querySnapshot.forEach((doc) => {
+      users.push({ id: doc.id, ...doc.data() });
+    });
+    
+    return users;
+  } catch (error) {
+    console.error('Error getting all users:', error);
+    throw error;
+  }
+};
+
 // Task Management
 export const getAllTasks = async () => {
   try {
@@ -153,6 +209,39 @@ export const deleteTask = async (taskId) => {
   }
 };
 
+// Pending Task Submissions
+export const getPendingTaskSubmissions = async () => {
+  try {
+    const submissionsRef = collection(db, 'userTaskSubmissions');
+    const q = query(submissionsRef, where('status', '==', 'pending'), orderBy('createdAt', 'desc'));
+    const querySnapshot = await getDocs(q);
+    
+    const submissions = [];
+    querySnapshot.forEach((doc) => {
+      submissions.push({ id: doc.id, ...doc.data() });
+    });
+    
+    return submissions;
+  } catch (error) {
+    console.error('Error getting pending task submissions:', error);
+    throw error;
+  }
+};
+
+export const updateTaskSubmissionStatus = async (submissionId, status) => {
+  try {
+    const submissionRef = doc(db, 'userTaskSubmissions', submissionId);
+    await updateDoc(submissionRef, {
+      status,
+      updatedAt: serverTimestamp()
+    });
+    return true;
+  } catch (error) {
+    console.error('Error updating task submission status:', error);
+    throw error;
+  }
+};
+
 // Transaction Management
 export const addTransaction = async (userId, transactionData) => {
   try {
@@ -169,13 +258,14 @@ export const addTransaction = async (userId, transactionData) => {
   }
 };
 
-export const getUserTransactions = async (userId, limit = 50) => {
+export const getUserTransactions = async (userId, limitCount = 50) => {
   try {
     const transactionsRef = collection(db, 'transactions');
     const q = query(
       transactionsRef, 
       where('userId', '==', userId),
-      orderBy('createdAt', 'desc')
+      orderBy('createdAt', 'desc'),
+      limit(limitCount)
     );
     
     const querySnapshot = await getDocs(q);
@@ -185,7 +275,7 @@ export const getUserTransactions = async (userId, limit = 50) => {
       transactions.push({ id: doc.id, ...doc.data() });
     });
     
-    return transactions.slice(0, limit);
+    return transactions;
   } catch (error) {
     console.error('Error getting transactions:', error);
     throw error;
@@ -223,7 +313,7 @@ export const createWithdrawalRequest = async (userId, amount, address, username)
 export const getPendingWithdrawals = async () => {
   try {
     const withdrawalsRef = collection(db, 'withdrawals');
-    const q = query(withdrawalsRef, where('status', '==', 'pending'));
+    const q = query(withdrawalsRef, where('status', '==', 'pending'), orderBy('createdAt', 'desc'));
     const querySnapshot = await getDocs(q);
     
     const withdrawals = [];
@@ -234,6 +324,24 @@ export const getPendingWithdrawals = async () => {
     return withdrawals;
   } catch (error) {
     console.error('Error getting pending withdrawals:', error);
+    throw error;
+  }
+};
+
+export const getAllWithdrawals = async (limitCount = 1000) => {
+  try {
+    const withdrawalsRef = collection(db, 'withdrawals');
+    const q = query(withdrawalsRef, orderBy('createdAt', 'desc'), limit(limitCount));
+    const querySnapshot = await getDocs(q);
+    
+    const withdrawals = [];
+    querySnapshot.forEach((doc) => {
+      withdrawals.push({ id: doc.id, ...doc.data() });
+    });
+    
+    return withdrawals;
+  } catch (error) {
+    console.error('Error getting all withdrawals:', error);
     throw error;
   }
 };
@@ -275,7 +383,7 @@ export const createDepositRequest = async (userId, amount, transactionHash, user
 export const getPendingDeposits = async () => {
   try {
     const depositsRef = collection(db, 'deposits');
-    const q = query(depositsRef, where('status', '==', 'pending'));
+    const q = query(depositsRef, where('status', '==', 'pending'), orderBy('createdAt', 'desc'));
     const querySnapshot = await getDocs(q);
     
     const deposits = [];
@@ -286,6 +394,24 @@ export const getPendingDeposits = async () => {
     return deposits;
   } catch (error) {
     console.error('Error getting pending deposits:', error);
+    throw error;
+  }
+};
+
+export const getAllDeposits = async (limitCount = 1000) => {
+  try {
+    const depositsRef = collection(db, 'deposits');
+    const q = query(depositsRef, orderBy('createdAt', 'desc'), limit(limitCount));
+    const querySnapshot = await getDocs(q);
+    
+    const deposits = [];
+      querySnapshot.forEach((doc) => {
+      deposits.push({ id: doc.id, ...doc.data() });
+    });
+    
+    return deposits;
+  } catch (error) {
+    console.error('Error getting all deposits:', error);
     throw error;
   }
 };
@@ -310,7 +436,7 @@ const generateReferralCode = () => {
 };
 
 // Real-time listeners
-export const subscribeToUserData = (userId, callback) => {
+export const subscribeToUser Data = (userId, callback) => {
   const userRef = doc(db, 'users', userId);
   return onSnapshot(userRef, (doc) => {
     if (doc.exists()) {
@@ -318,4 +444,3 @@ export const subscribeToUserData = (userId, callback) => {
     }
   });
 };
-      
