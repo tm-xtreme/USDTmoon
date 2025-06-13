@@ -1,235 +1,296 @@
-
 import React, { useState, useEffect, useCallback } from 'react';
 import { useTelegram } from '@/hooks/useTelegram';
+import { 
+  createOrUpdateUser, 
+  getUserData, 
+  updateUserData, 
+  addTransaction,
+  createWithdrawalRequest,
+  createDepositRequest,
+  subscribeToUserData
+} from '@/lib/firebaseService';
 
 const CLAIM_FEE = 0.000007;
-const MINER_UPGRADE_COSTS = [0, 0.05, 0.1, 0.2]; // Index 0 is for level 1 (no cost to be level 1)
+const MINER_UPGRADE_COSTS = [0, 0.05, 0.1, 0.2];
 const STORAGE_UPGRADE_COSTS = [0, 0.005, 0.01, 0.02];
-const MINER_RATES = [0, 0.000027, 0.000054, 0.000108]; // USDT per hour
-const STORAGE_CAPACITIES = [0, 0.000027 * 2, 0.000054 * 2, 0.000108 * 2]; // Capacity for 2 hours of mining
+const MINER_RATES = [0, 0.000027, 0.000054, 0.000108];
+const STORAGE_CAPACITIES = [0, 0.000027 * 2, 0.000054 * 2, 0.000108 * 2];
 const MAX_LEVEL = 3;
-
-const getInitialState = (user) => {
-    if (!user) return null;
-    const savedData = localStorage.getItem(`usdt-mining-data-v3-${user.id}`);
-    if (savedData) {
-        const parsed = JSON.parse(savedData);
-        // Ensure new fields exist if loading old data
-        return {
-            minerLevel: 1,
-            storageLevel: 1,
-            ...parsed,
-            minerRate: MINER_RATES[parsed.minerLevel || 1],
-            storageCapacity: STORAGE_CAPACITIES[parsed.storageLevel || 1],
-        };
-    }
-    return {
-        id: user.id,
-        fullName: `${user.first_name} ${user.last_name || ''}`.trim(),
-        username: user.username,
-        photoUrl: user.photo_url,
-        totalMined: 0,
-        lastStorageSync: Date.now(),
-        storageFillTime: Date.now() + 2 * 60 * 60 * 1000, // Based on level 1 rate
-        minerLevel: 1,
-        storageLevel: 1,
-        minerRate: MINER_RATES[1],
-        storageCapacity: STORAGE_CAPACITIES[1],
-        storageMined: 0,
-        transactions: [],
-        userTasks: {},
-        pendingWithdrawals: [],
-        pendingDeposits: [],
-    };
-};
 
 export const useGameData = () => {
     const { user } = useTelegram();
     const [data, setData] = useState(null);
     const [isInitialized, setIsInitialized] = useState(false);
+    const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        if (user && !isInitialized) {
-            const initialState = getInitialState(user);
-            setData(initialState);
-            setIsInitialized(true);
-        }
-    }, [user, isInitialized]);
+        const initializeUser = async () => {
+            if (user) {
+                try {
+                    setLoading(true);
+                    
+                    // Create or update user in Firebase
+                    const telegramData = { user };
+                    const userData = await createOrUpdateUser(telegramData);
+                    setData(userData);
+                    setIsInitialized(true);
+                    
+                    // Set up real-time listener
+                    const unsubscribe = subscribeToUserData(user.id.toString(), (updatedData) => {
+                        setData(updatedData);
+                    });
+                    
+                    return () => unsubscribe();
+                } catch (error) {
+                    console.error('Error initializing user:', error);
+                } finally {
+                    setLoading(false);
+                }
+            }
+        };
 
-    const saveData = useCallback((newData) => {
-        if(user && newData) {
-            localStorage.setItem(`usdt-mining-data-v3-${user.id}`, JSON.stringify(newData));
+        initializeUser();
+    }, [user]);
+
+    const saveData = useCallback(async (newData) => {
+        if (user && newData) {
+            try {
+                await updateUserData(user.id.toString(), newData);
+                setData(prev => ({ ...prev, ...newData }));
+            } catch (error) {
+                console.error('Error saving data:', error);
+            }
         }
     }, [user]);
-    
-    const addTransaction = useCallback((currentData, type, amount, details = {}) => {
-        const newTransaction = {
-            id: Date.now(),
-            type,
-            amount,
-            date: new Date().toISOString(),
-            ...details
-        };
-        const updatedTransactions = [newTransaction, ...currentData.transactions].slice(0, 50);
-        return { ...currentData, transactions: updatedTransactions };
-    }, []);
 
+    const addTransactionRecord = useCallback(async (type, amount, details = {}) => {
+        if (user) {
+            try {
+                await addTransaction(user.id.toString(), {
+                    type,
+                    amount,
+                    date: new Date().toISOString(),
+                    ...details
+                });
+            } catch (error) {
+                console.error('Error adding transaction:', error);
+            }
+        }
+    }, [user]);
+
+    // Real-time mining calculation
     useEffect(() => {
         if (!data || !isInitialized) return;
 
         const interval = setInterval(() => {
             setData(currentData => {
                 if (!currentData) return null;
+                
                 const now = Date.now();
                 const elapsed = now - currentData.lastStorageSync;
                 
                 const storageRatePerMs = currentData.minerRate / (60 * 60 * 1000);
-                const newStorageMined = Math.min(currentData.storageCapacity, currentData.storageMined + elapsed * storageRatePerMs);
+                const newStorageMined = Math.min(
+                    currentData.storageCapacity, 
+                    currentData.storageMined + elapsed * storageRatePerMs
+                );
                 const fillDurationMs = (currentData.storageCapacity / currentData.minerRate) * 60 * 60 * 1000;
 
                 const updatedData = { 
                     ...currentData, 
                     storageMined: newStorageMined, 
                     lastStorageSync: now,
-                    storageFillTime: newStorageMined >= currentData.storageCapacity ? currentData.storageFillTime : now + (fillDurationMs - (currentData.storageMined / currentData.minerRate * 60 * 60 * 1000))
+                    storageFillTime: newStorageMined >= currentData.storageCapacity ? 
+                        currentData.storageFillTime : 
+                        now + (fillDurationMs - (currentData.storageMined / currentData.minerRate * 60 * 60 * 1000))
                 };
+                
+                // Save to Firebase periodically (every 30 seconds)
+                if (elapsed > 30000) {
+                    saveData({
+                        storageMined: updatedData.storageMined,
+                        lastStorageSync: updatedData.lastStorageSync,
+                        storageFillTime: updatedData.storageFillTime
+                    });
+                }
+                
                 return updatedData;
             });
         }, 1000);
 
         return () => clearInterval(interval);
-    }, [data, isInitialized]);
+    }, [data, isInitialized, saveData]);
 
+    const handleClaimStorage = async () => {
+        if (!data || data.storageMined <= 0) return { success: false, reason: "Storage is empty." };
+        if (data.totalMined < CLAIM_FEE) return { success: false, reason: "Not enough balance for claim fee." };
 
-    const handleClaimStorage = () => {
-         if (!data || data.storageMined <= 0) return { success: false, reason: "Storage is empty." };
-         if (data.totalMined < CLAIM_FEE) return { success: false, reason: "Not enough balance for claim fee." };
-
-         const claimedAmount = data.storageMined;
-         const fillDurationMs = (data.storageCapacity / data.minerRate) * 60 * 60 * 1000;
-         let newData = {
-            ...data,
-            totalMined: data.totalMined + claimedAmount - CLAIM_FEE,
-            storageMined: 0,
-            storageFillTime: Date.now() + fillDurationMs,
-            lastStorageSync: Date.now(),
-         };
-         
-         newData = addTransaction(newData, 'claim', claimedAmount);
-         newData = addTransaction(newData, 'fee', -CLAIM_FEE);
-         
-         setData(newData);
-         saveData(newData);
-         return { success: true, amount: claimedAmount };
-    };
-
-    const handleTaskAction = (task) => {
-        if (!data) return;
-        let userTaskState = data.userTasks[task.id] || { status: 'new' };
-        let newData = { ...data };
-        switch(userTaskState.status) {
-            case 'new': userTaskState.status = 'pending_claim'; break;
-            case 'pending_claim':
-                if (task.type === 'auto') {
-                    newData = addTransaction(newData, 'task_reward', task.reward);
-                    userTaskState.status = 'completed';
-                    newData.totalMined += task.reward;
-                } else { userTaskState.status = 'pending_approval'; }
-                break;
-            default: break;
+        try {
+            const claimedAmount = data.storageMined;
+            const fillDurationMs = (data.storageCapacity / data.minerRate) * 60 * 60 * 1000;
+            
+            const newData = {
+                totalMined: data.totalMined + claimedAmount - CLAIM_FEE,
+                storageMined: 0,
+                storageFillTime: Date.now() + fillDurationMs,
+                lastStorageSync: Date.now(),
+            };
+            
+            await saveData(newData);
+            await addTransactionRecord('claim', claimedAmount);
+            await addTransactionRecord('fee', -CLAIM_FEE);
+            
+            return { success: true, amount: claimedAmount };
+        } catch (error) {
+            console.error('Error claiming storage:', error);
+            return { success: false, reason: "Failed to claim storage." };
         }
-        newData.userTasks = { ...data.userTasks, [task.id]: userTaskState };
-        setData(newData);
-        saveData(newData);
     };
 
-    const simulateAdminApproval = (taskId) => {
+    const handleTaskAction = async (task) => {
+        if (!data) return;
+        
+        try {
+            let userTaskState = data.userTasks[task.id] || { status: 'new' };
+            let newData = { ...data };
+            
+            switch(userTaskState.status) {
+                case 'new': 
+                    userTaskState.status = 'pending_claim'; 
+                    break;
+                case 'pending_claim':
+                    if (task.type === 'auto') {
+                        await addTransactionRecord('task_reward', task.reward);
+                        userTaskState.status = 'completed';
+                        newData.totalMined += task.reward;
+                    } else { 
+                        userTaskState.status = 'pending_approval'; 
+                    }
+                    break;
+                default: 
+                    break;
+            }
+            
+            newData.userTasks = { ...data.userTasks, [task.id]: userTaskState };
+            await saveData(newData);
+        } catch (error) {
+            console.error('Error handling task action:', error);
+        }
+    };
+
+    const simulateAdminApproval = async (taskId) => {
         if(!data || !data.userTasks[taskId] || data.userTasks[taskId].status !== 'pending_approval') return;
-        const taskReward = 0.00001; 
-        let newData = { ...data };
-        newData.totalMined += taskReward;
-        newData = addTransaction(newData, 'task_reward', taskReward);
-        newData.userTasks[taskId].status = 'completed';
-        setData(newData);
-        saveData(newData);
+        
+        try {
+            const taskReward = 0.00001; 
+            const newData = {
+                totalMined: data.totalMined + taskReward,
+                userTasks: {
+                    ...data.userTasks,
+                    [taskId]: { ...data.userTasks[taskId], status: 'completed' }
+                }
+            };
+            
+            await saveData(newData);
+            await addTransactionRecord('task_reward', taskReward);
+        } catch (error) {
+            console.error('Error simulating admin approval:', error);
+        }
     };
 
-    const upgradeMiner = () => {
+    const upgradeMiner = async () => {
         if (!data || data.minerLevel >= MAX_LEVEL) return { success: false, reason: "Max level reached."};
+        
         const cost = MINER_UPGRADE_COSTS[data.minerLevel + 1];
         if (data.totalMined < cost) return { success: false, reason: "Not enough balance."};
 
-        const newLevel = data.minerLevel + 1;
-        let newData = {
-            ...data,
-            totalMined: data.totalMined - cost,
-            minerLevel: newLevel,
-            minerRate: MINER_RATES[newLevel],
-        };
-        newData = addTransaction(newData, 'upgrade_miner', -cost, { level: newLevel });
-        setData(newData);
-        saveData(newData);
-        return { success: true, level: newLevel };
+        try {
+            const newLevel = data.minerLevel + 1;
+            const newData = {
+                totalMined: data.totalMined - cost,
+                minerLevel: newLevel,
+                minerRate: MINER_RATES[newLevel],
+            };
+            
+            await saveData(newData);
+            await addTransactionRecord('upgrade_miner', -cost, { level: newLevel });
+            
+            return { success: true, level: newLevel };
+        } catch (error) {
+            console.error('Error upgrading miner:', error);
+            return { success: false, reason: "Failed to upgrade miner." };
+        }
     };
 
-    const upgradeStorage = () => {
+    const upgradeStorage = async () => {
         if (!data || data.storageLevel >= MAX_LEVEL) return { success: false, reason: "Max level reached."};
+        
         const cost = STORAGE_UPGRADE_COSTS[data.storageLevel + 1];
         if (data.totalMined < cost) return { success: false, reason: "Not enough balance."};
         
-        const newLevel = data.storageLevel + 1;
-        let newData = {
-            ...data,
-            totalMined: data.totalMined - cost,
-            storageLevel: newLevel,
-            storageCapacity: STORAGE_CAPACITIES[newLevel],
-        };
-        newData = addTransaction(newData, 'upgrade_storage', -cost, { level: newLevel });
-        setData(newData);
-        saveData(newData);
-        return { success: true, level: newLevel };
+        try {
+            const newLevel = data.storageLevel + 1;
+            const newData = {
+                totalMined: data.totalMined - cost,
+                storageLevel: newLevel,
+                storageCapacity: STORAGE_CAPACITIES[newLevel],
+            };
+            
+            await saveData(newData);
+            await addTransactionRecord('upgrade_storage', -cost, { level: newLevel });
+            
+            return { success: true, level: newLevel };
+        } catch (error) {
+            console.error('Error upgrading storage:', error);
+            return { success: false, reason: "Failed to upgrade storage." };
+        }
     };
 
-    const requestWithdrawal = (amount, address) => {
+    const requestWithdrawal = async (amount, address) => {
         if (!data || data.totalMined < amount) return { success: false, reason: "Insufficient balance." };
         if (amount <= 0) return { success: false, reason: "Invalid amount." };
 
-        const withdrawalId = `wd-${Date.now()}`;
-        const newPendingWithdrawal = { id: withdrawalId, amount, address, status: 'pending', date: new Date().toISOString(), userId: user.id, username: user.username };
-        
-        let newData = {
-            ...data,
-            totalMined: data.totalMined - amount, // Deduct immediately, will be refunded if rejected
-            pendingWithdrawals: [...data.pendingWithdrawals, newPendingWithdrawal]
-        };
-        newData = addTransaction(newData, 'withdrawal_request', -amount, { address });
-        setData(newData);
-        saveData(newData);
-        // In a real app, this would also send data to backend for admin approval
-        localStorage.setItem(`admin-pending-withdrawals`, JSON.stringify(newData.pendingWithdrawals));
-        return { success: true, withdrawalId };
+        try {
+            const withdrawalId = await createWithdrawalRequest(
+                user.id.toString(), 
+                amount, 
+                address, 
+                user.username
+            );
+            
+            // Deduct from balance immediately
+            await saveData({
+                totalMined: data.totalMined - amount
+            });
+            
+            return { success: true, withdrawalId };
+        } catch (error) {
+            console.error('Error requesting withdrawal:', error);
+            return { success: false, reason: "Failed to request withdrawal." };
+        }
     };
 
-    const requestDeposit = (amount, transactionHash) => {
+    const requestDeposit = async (amount, transactionHash) => {
         if (!data || amount <= 0) return { success: false, reason: "Invalid amount." };
         
-        const depositId = `dp-${Date.now()}`;
-        const newPendingDeposit = { id: depositId, amount, transactionHash, status: 'pending', date: new Date().toISOString(), userId: user.id, username: user.username };
-
-        let newData = {
-            ...data,
-            pendingDeposits: [...data.pendingDeposits, newPendingDeposit]
-        };
-        // No transaction added yet, will be added upon admin approval
-        setData(newData);
-        saveData(newData);
-        localStorage.setItem(`admin-pending-deposits`, JSON.stringify(newData.pendingDeposits));
-        return { success: true, depositId };
+        try {
+            const depositId = await createDepositRequest(
+                user.id.toString(), 
+                amount, 
+                transactionHash, 
+                user.username
+            );
+            
+            return { success: true, depositId };
+        } catch (error) {
+            console.error('Error requesting deposit:', error);
+            return { success: false, reason: "Failed to request deposit." };
+        }
     };
-
 
     return { 
         data, 
+        loading,
         handleClaimStorage, 
         handleTaskAction, 
         simulateAdminApproval, 
