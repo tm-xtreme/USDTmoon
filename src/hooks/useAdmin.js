@@ -10,18 +10,26 @@ import {
   getPendingDeposits,
   updateWithdrawalStatus,
   updateDepositStatus,
-  updateUserData,
-  getUserData,
-  addTransaction
+  updateUser Data,
+  getUser Data,
+  addTransaction,
+  getAdminStats,
+  getAllUsers,
+  getPendingTaskSubmissions,
+  getAllWithdrawals,
+  getAllDeposits
 } from '@/lib/firebaseService';
-
-const ADMIN_EMAIL = "admin@moonusdt.com";
-const ADMIN_PASSWORD = "admin123"; // In production, use proper authentication
 
 export const useAdmin = () => {
     const [isLoggedIn, setIsLoggedIn] = useState(false);
     const [tasks, setTasks] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [adminStats, setAdminStats] = useState({});
+    const [pendingWithdrawals, setPendingWithdrawals] = useState([]);
+    const [pendingDeposits, setPendingDeposits] = useState([]);
+    const [allUsers, setAllUsers] = useState([]);
+    const [withdrawalHistory, setWithdrawalHistory] = useState([]);
+    const [depositHistory, setDepositHistory] = useState([]);
 
     useEffect(() => {
         const unsubscribe = onAuthStateChanged(auth, (user) => {
@@ -35,6 +43,9 @@ export const useAdmin = () => {
     useEffect(() => {
         if (isLoggedIn) {
             loadTasks();
+            loadAdminStats();
+            loadPendingTransactions();
+            loadAllUsers();
         }
     }, [isLoggedIn]);
 
@@ -44,6 +55,55 @@ export const useAdmin = () => {
             setTasks(tasksData);
         } catch (error) {
             console.error('Error loading tasks:', error);
+        }
+    };
+
+    const loadAdminStats = async () => {
+        try {
+            const stats = await getAdminStats();
+            setAdminStats(stats);
+        } catch (error) {
+            console.error('Error loading admin stats:', error);
+        }
+    };
+
+    const loadPendingTransactions = async () => {
+        try {
+            const [withdrawals, deposits] = await Promise.all([
+                getPendingWithdrawals(),
+                getPendingDeposits()
+            ]);
+            setPendingWithdrawals(withdrawals);
+            setPendingDeposits(deposits);
+        } catch (error) {
+            console.error('Error loading pending transactions:', error);
+        }
+    };
+
+    const loadAllUsers = async () => {
+        try {
+            const users = await getAllUsers();
+            setAllUsers(users);
+        } catch (error) {
+            console.error('Error loading all users:', error);
+        }
+    };
+
+    const loadWithdrawalHistory = async () => {
+        try {
+            const history = await getAllWithdrawals();
+            setWithdrawalHistory(history);
+        } catch (error) {
+            console.error('Error loading withdrawal history:', error);
+        }
+    };
+
+    const loadDepositHistory = async () => {
+        try {
+            const history = await getAllDeposits();
+            setDepositHistory(history);
+        } catch (error) {
+            console.error('Error loading deposit history:', error);
         }
     };
 
@@ -97,22 +157,10 @@ export const useAdmin = () => {
         }
     };
 
-    const getPendingTransactions = async () => {
-        try {
-            const [withdrawals, deposits] = await Promise.all([
-                getPendingWithdrawals(),
-                getPendingDeposits()
-            ]);
-            return { withdrawals, deposits };
-        } catch (error) {
-            console.error('Error getting pending transactions:', error);
-            return { withdrawals: [], deposits: [] };
-        }
-    };
-
     const approveWithdrawal = async (withdrawalId) => {
         try {
             await updateWithdrawalStatus(withdrawalId, 'approved');
+            await loadPendingTransactions();
             return true;
         } catch (error) {
             console.error('Error approving withdrawal:', error);
@@ -123,22 +171,14 @@ export const useAdmin = () => {
     const rejectWithdrawal = async (withdrawalId, userId, amount) => {
         try {
             await updateWithdrawalStatus(withdrawalId, 'rejected');
-            
             // Refund the amount to user
-            const userData = await getUserData(userId);
+            const userData = await getUser Data(userId);
             if (userData) {
-                await updateUserData(userId, {
+                await updateUser Data(userId, {
                     totalMined: userData.totalMined + amount
                 });
-                
-                // Add refund transaction
-                await addTransaction(userId, {
-                    type: 'withdrawal_refund',
-                    amount: amount,
-                    status: 'completed'
-                });
             }
-            
+            await loadPendingTransactions();
             return true;
         } catch (error) {
             console.error('Error rejecting withdrawal:', error);
@@ -149,22 +189,14 @@ export const useAdmin = () => {
     const approveDeposit = async (depositId, userId, amount) => {
         try {
             await updateDepositStatus(depositId, 'approved');
-            
             // Add amount to user balance
-            const userData = await getUserData(userId);
+            const userData = await getUser Data(userId);
             if (userData) {
-                await updateUserData(userId, {
+                await updateUser Data(userId, {
                     totalMined: userData.totalMined + amount
                 });
-                
-                // Add deposit transaction
-                await addTransaction(userId, {
-                    type: 'deposit',
-                    amount: amount,
-                    status: 'completed'
-                });
             }
-            
+            await loadPendingTransactions();
             return true;
         } catch (error) {
             console.error('Error approving deposit:', error);
@@ -175,6 +207,7 @@ export const useAdmin = () => {
     const rejectDeposit = async (depositId) => {
         try {
             await updateDepositStatus(depositId, 'rejected');
+            await loadPendingTransactions();
             return true;
         } catch (error) {
             console.error('Error rejecting deposit:', error);
@@ -182,81 +215,27 @@ export const useAdmin = () => {
         }
     };
 
-    const approveTask = async (userId, taskId, reward) => {
-        try {
-            const userData = await getUserData(userId);
-            if (userData) {
-                // Update user's task status and add reward
-                const updatedUserTasks = {
-                    ...userData.userTasks,
-                    [taskId]: { status: 'completed' }
-                };
-                
-                await updateUserData(userId, {
-                    totalMined: userData.totalMined + reward,
-                    userTasks: updatedUserTasks
-                });
-                
-                // Add task reward transaction
-                await addTransaction(userId, {
-                    type: 'task_reward',
-                    amount: reward,
-                    taskId: taskId,
-                    status: 'completed'
-                });
-            }
-            
-            return true;
-        } catch (error) {
-            console.error('Error approving task:', error);
-            return false;
-        }
-    };
-
-    const rejectTask = async (userId, taskId) => {
-        try {
-            const userData = await getUserData(userId);
-            if (userData) {
-                // Update user's task status to rejected
-                const updatedUserTasks = {
-                    ...userData.userTasks,
-                    [taskId]: { status: 'rejected' }
-                };
-                
-                await updateUserData(userId, {
-                    userTasks: updatedUserTasks
-                });
-            }
-            
-            return true;
-        } catch (error) {
-            console.error('Error rejecting task:', error);
-            return false;
-        }
-    };
-
-    const getPendingTasks = async () => {
-        // This would need to be implemented to get all users with pending tasks
-        // For now, returning empty array as it requires more complex querying
-        return [];
-    };
-
     return {
         isLoggedIn,
         loading,
+        tasks,
+        adminStats,
+        pendingWithdrawals,
+        pendingDeposits,
+        allUsers,
+        withdrawalHistory,
+        depositHistory,
         login,
         logout,
-        tasks,
         addTask,
         updateTask,
         removeTask,
-        getPendingTasks,
-        getPendingTransactions,
-        approveTask,
-        rejectTask,
         approveWithdrawal,
         rejectWithdrawal,
         approveDeposit,
-        rejectDeposit
+        rejectDeposit,
+        loadWithdrawalHistory,
+        loadDepositHistory
     };
 };
+              
