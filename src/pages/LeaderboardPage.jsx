@@ -14,8 +14,10 @@ const LeaderboardPage = () => {
     const [refreshing, setRefreshing] = useState(false);
 
     useEffect(() => {
-        loadLeaderboard();
-    }, []);
+        if (user) {
+            loadLeaderboard();
+        }
+    }, [user]);
 
     const loadLeaderboard = async () => {
         try {
@@ -45,10 +47,10 @@ const LeaderboardPage = () => {
 
             setLeaderboard(sortedUsers);
 
-            // Find current user's rank
-            if (user) {
+            // Find current user's rank - check immediately after setting leaderboard
+            if (user && user.id) {
                 const userRank = sortedUsers.find(u => u.id === user.id.toString());
-                setCurrentUserRank(userRank);
+                setCurrentUserRank(userRank || null);
             }
         } catch (error) {
             console.error('Error loading leaderboard:', error);
@@ -263,9 +265,10 @@ const LeaderboardPage = () => {
                         Showing top 50 miners. Total active miners: {leaderboard.length}
                     </p>
                 </div>
-            )}
+                )}
         </div>
     );
 };
 
 export default LeaderboardPage;
+    
