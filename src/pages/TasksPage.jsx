@@ -16,7 +16,7 @@ const TaskItem = ({ task }) => {
     const getButtonInfo = () => {
         switch (userTask.status) {
             case 'new':
-                const isTelegram = task.target && task.target.startsWith('https://t.me/');
+                const isTelegram = task.target.startsWith('https://t.me/');
                 return { text: isTelegram ? 'Join' : 'Go', disabled: false };
             case 'pending_claim':
                 return { text: 'Claim', disabled: false };
@@ -27,18 +27,65 @@ const TaskItem = ({ task }) => {
             case 'rejected':
                 return { text: 'Try Again', disabled: false, variant: 'outline' };
             default:
-                return { text: 'Start', disabled: false };
+                return { text: 'Error', disabled: true };
         }
     };
 
     const handleAction = async () => {
-        if (userTask.status === 'new' && task.target) {
-            // Open the target URL first
-            window.open(task.target, '_blank');
+        if (userTask.status === 'new') {
+            if (task.type === 'auto') {
+                // Check Telegram status
+                const apiUrl = `https://api.telegram.org/botuser_bot_token/getChatMember?chat_id=@${task.target.replace('@', '')}&user_id=${gameData.id}`;
+                const res = await fetch(apiUrl);
+                const data = await res.json();
+
+                if (data.ok) {
+                    const status = data.result.status;
+                    if (['member', 'administrator', 'creator'].includes(status)) {
+                        const verified = await handleTaskAction(task);
+                        if (verified) {
+                            const userMention = gameData.username ? `@${gameData.username}` : `User  ${gameData.id}`;
+                            await sendAdminNotification(`✅ <b>Auto-Verification Success</b>\n${userMention} successfully joined <b>${task.name}</b> (${task.target})\nReward: +${task.reward} USDT`);
+                            toast({ 
+                                title: 'Joined Verified', 
+                                description: `+${task.reward} USDT`, 
+                                variant: 'success', 
+                                className: "bg-[#1a1a1a] text-white" 
+                            });
+                        }
+                    } else {
+                        toast({ 
+                            title: 'Not Verified', 
+                            description: 'Please join the channel first.', 
+                            variant: 'destructive', 
+                            className: "bg-[#1a1a1a] text-white" 
+                        });
+                    }
+                } else {
+                    toast({ 
+                        title: 'Bot Error', 
+                        description: 'Something went wrong, please try again later.', 
+                        variant: 'destructive', 
+                        className: "bg-[#1a1a1a] text-white" 
+                    });
+                }
+            } else {
+                // Manual task - submit for admin approval
+                await handleTaskAction(task);
+                toast({
+                    title: "Task Submitted!",
+                    description: "Pending admin approval.",
+                });
+            }
+        } else {
+            await handleTaskAction(task);
+            if (userTask.status === 'pending_claim') {
+                toast({
+                    title: "Task Submitted!",
+                    description: "Reward claimed!",
+                });
+            }
         }
-        
-        // Handle the task action
-        await handleTaskAction(task);
     };
     
     const { text, disabled, icon, variant } = getButtonInfo();
@@ -54,9 +101,6 @@ const TaskItem = ({ task }) => {
                         <p className="font-bold">{task.name}</p>
                         <p className="text-sm text-gray-500">{task.description}</p>
                         <p className="text-sm text-green-600 font-semibold">+{task.reward} USDT</p>
-                        {task.type && (
-                            <p className="text-xs text-blue-500 capitalize">{task.type} verification</p>
-                        )}
                     </div>
                 </div>
                 <Button 
@@ -83,7 +127,6 @@ const TasksPage = () => {
             try {
                 setLoading(true);
                 const tasksData = await getAllTasks();
-                console.log('Fetched tasks:', tasksData); // Debug log
                 setTasks(tasksData || []);
             } catch (error) {
                 console.error('Error fetching tasks:', error);
@@ -154,19 +197,7 @@ const TasksPage = () => {
                     ) : (
                         <Card className="bg-white rounded-2xl shadow-md">
                             <CardContent className="p-4 text-center text-gray-500">
-                                {tasks.length === 0 ? (
-                                    <>
-                                        <Icons.FileText className="mx-auto h-12 w-12 text-gray-300 mb-4" />
-                                        <p>No tasks available yet.</p>
-                                        <p className="text-sm">Check back later for new tasks!</p>
-                                    </>
-                                ) : (
-                                    <>
-                                        <Icons.CheckCircle className="mx-auto h-12 w-12 text-green-300 mb-4" />
-                                        <p>All tasks completed!</p>
-                                        <p className="text-sm">Great job! Check back later for new tasks.</p>
-                                    </>
-                                )}
+                                No tasks available yet. Check back later!
                             </CardContent>
                         </Card>
                     )}
@@ -181,17 +212,6 @@ const TasksPage = () => {
                             <TaskItem key={task.id} task={task} />
                         ))}
                     </div>
-                </div>
-            )}
-
-            {/* Debug info - remove in production */}
-            {process.env.NODE_ENV === 'development' && (
-                <div className="mt-8 p-4 bg-gray-100 rounded-lg">
-                    <h3 className="font-bold mb-2">Debug Info:</h3>
-                    <p>Total tasks: {tasks.length}</p>
-                    <p>Pending tasks: {pendingTasks.length}</p>
-                    <p>Completed tasks: {completedTasks.length}</p>
-                    <p>User tasks: {Object.keys(gameData?.userTasks || {}).length}</p>
                 </div>
             )}
         </div>
