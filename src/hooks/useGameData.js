@@ -16,6 +16,9 @@ import {
 } from '@/lib/referralService';
 import { useToast } from '@/components/ui/use-toast';
 
+// Bot API Token - centralized configuration
+const BOT_API_TOKEN = "8158970226:AAHcHhlZs5sL_eClx4UoGt9mx0edE2-N-Sw";
+
 const CLAIM_FEE = 0.000007;
 const MINER_UPGRADE_COSTS = [0, 0.05, 0.1, 0.2];
 const STORAGE_UPGRADE_COSTS = [0, 0.005, 0.01, 0.02];
@@ -26,7 +29,7 @@ const MAX_LEVEL = 3;
 // Admin notification function
 const sendAdminNotification = async (message) => {
     try {
-        await fetch(`https://api.telegram.org/bot8158970226:AAHcHhlZs5sL_eClx4UoGt9mx0edE2-N-Sw/sendMessage`, {
+        await fetch(`https://api.telegram.org/bot${BOT_API_TOKEN}/sendMessage`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -43,7 +46,7 @@ const sendAdminNotification = async (message) => {
 // User notification function
 const sendUserNotification = async (userId, message) => {
     try {
-        await fetch(`https://api.telegram.org/bot8158970226:AAHcHhlZs5sL_eClx4UoGt9mx0edE2-N-Sw/sendMessage`, {
+        await fetch(`https://api.telegram.org/bot${BOT_API_TOKEN}/sendMessage`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -106,6 +109,7 @@ export const useGameData = () => {
                 setData(prev => ({ ...prev, ...newData }));
             } catch (error) {
                 console.error('Error saving data:', error);
+                throw error;
             }
         }
     }, [user]);
@@ -124,6 +128,28 @@ export const useGameData = () => {
             }
         }
     }, [user]);
+
+    // Extract channel username from various formats
+    const extractChannelUsername = (target) => {
+        if (!target) return null;
+        
+        // Handle different URL formats
+        let username = target;
+        
+        // Remove protocol and domain if present
+        if (target.includes('t.me/')) {
+            const match = target.match(/t\.me\/([^/?]+)/);
+            username = match ? match[1] : target;
+        }
+        
+        // Remove @ if present
+        username = username.replace('@', '');
+        
+        // Remove any additional parameters or paths
+        username = username.split('?')[0].split('/')[0];
+        
+        return username;
+    };
 
     // Real-time mining calculation
     useEffect(() => {
@@ -195,10 +221,10 @@ export const useGameData = () => {
     };
 
     const handleTaskAction = async (task) => {
-        if (!data) return;
+        if (!data) return false;
         
         try {
-            let userTaskState = data.userTasks[task.id] || { status: 'new' };
+            let userTaskState = data.userTasks?.[task.id] || { status: 'new' };
             let newData = { ...data };
             
             switch(userTaskState.status) {
@@ -206,89 +232,81 @@ export const useGameData = () => {
                     if (task.type === 'auto') {
                         // Check Telegram status for auto tasks
                         try {
-                            const apiUrl = `https://api.telegram.org/bot8158970226:AAHcHhlZs5sL_eClx4UoGt9mx0edE2-N-Sw/getChatMember?chat_id=@${task.target.replace('@', '')}&user_id=${user.id}`;
+                            const channelUsername = extractChannelUsername(task.target);
+                            
+                            if (!channelUsername) {
+                                console.error('Invalid channel username:', task.target);
+                                return false;
+                            }
+
+                            const apiUrl = `https://api.telegram.org/bot${BOT_API_TOKEN}/getChatMember?chat_id=@${channelUsername}&user_id=${user.id}`;
+                            console.log('Checking membership:', apiUrl);
+                            
                             const res = await fetch(apiUrl);
                             const responseData = await res.json();
+
+                            console.log('Telegram API Response:', responseData);
 
                             if (responseData.ok) {
                                 const status = responseData.result.status;
                                 if (['member', 'administrator', 'creator'].includes(status)) {
                                     // User is verified, complete task automatically
                                     userTaskState.status = 'completed';
+                                    userTaskState.completedAt = new Date().toISOString();
                                     newData.totalMined += task.reward;
                                     
-                                    await addTransactionRecord('task_reward', task.reward);
+                                    await addTransactionRecord('task_reward', task.reward, {
+                                        taskId: task.id,
+                                        taskName: task.name,
+                                        taskType: task.type
+                                    });
                                     await processReferralTaskReward(user.id.toString(), task.reward);
                                     
-                                    const userMention = user.username ? `@${user.username}` : `User ${user.id}`;
-                                    await sendAdminNotification(`✅ <b>Auto-Verification Success</b>\n${userMention} successfully joined <b>${task.name}</b> (${task.target})\nReward: +${task.reward} USDT`);
-                                    
-                                    toast({ 
-                                        title: 'Task Completed!', 
-                                        description: `+${task.reward} USDT earned!`, 
-                                    });
+                                    const userMention = user.username ? `@${user.username}` : `${user.first_name || 'User'} (${user.id})`;
+                                    await sendAdminNotification(`✅ <b>Auto-Task Completed</b>\n\n👤 User: ${userMention}\n📋 Task: <b>${task.name}</b>\n🔗 Target: ${task.target}\n💰 Reward: +${task.reward} USDT\n⏰ Time: ${new Date().toLocaleString()}`);
                                 } else {
-                                    toast({ 
-                                        title: 'Not Verified', 
-                                        description: 'Please join the channel first.', 
-                                        variant: 'destructive'
-                                    });
-                                    return; // Don't update status if not verified
+                                    console.log('User not a member, status:', status);
+                                    return false; // Don't update status if not verified
                                 }
-                            } else if (responseData.error_code === 400 || responseData.error_code === 403) {
-                                await sendAdminNotification(`❗ <b>Bot Error</b>\nBot is not an admin or failed to access @${task.target}. Please ensure it's added correctly.`);
-                                toast({ 
-                                    title: 'Bot Error', 
-                                    description: 'Something went wrong, please try again later...', 
-                                    variant: 'destructive'
-                                });
-                                return;
+                            } else {
+                                console.error('Telegram API Error:', responseData);
+                                if (responseData.error_code === 400 || responseData.error_code === 403) {
+                                    await sendAdminNotification(`❗ <b>Bot Access Error</b>\n\n🤖 Bot cannot access channel: ${task.target}\n📋 Task: ${task.name}\n👤 User: ${user.username ? `@${user.username}` : user.id}\n\n⚠️ Please ensure bot is admin in the channel.`);
+                                }
+                                return false;
                             }
                         } catch (error) {
                             console.error('Error checking Telegram status:', error);
-                            toast({ 
-                                title: 'Error', 
-                                description: 'Failed to verify task. Please try again.', 
-                                variant: 'destructive'
-                            });
-                            return;
+                            return false;
                         }
                     } else {
                         // Manual task - send for admin approval
                         userTaskState.status = 'pending_approval';
                         userTaskState.submittedAt = new Date().toISOString();
                         
-                        const userMention = user.username ? `@${user.username}` : `User ${user.id}`;
-                        await sendAdminNotification(`📋 <b>Manual Task Submission</b>\n${userMention} submitted task: <b>${task.name}</b>\nDescription: ${task.description}\nReward: ${task.reward} USDT\nTarget: ${task.target}\n\nPlease review and approve/reject in admin panel.`);
-                        
-                        toast({
-                            title: "Task Submitted!",
-                            description: "Pending admin approval.",
-                        });
+                        const userMention = user.username ? `@${user.username}` : `${user.first_name || 'User'} (${user.id})`;
+                        await sendAdminNotification(`📋 <b>Manual Task Submission</b>\n\n👤 User: ${userMention}\n📋 Task: <b>${task.name}</b>\n📝 Description: ${task.description}\n🔗 Target: ${task.target}\n💰 Reward: ${task.reward} USDT\n⏰ Submitted: ${new Date().toLocaleString()}\n\n🔍 Please review and approve/reject in admin panel.`);
                     }
                     break;
                     
                 case 'pending_claim':
-                    if (task.type === 'auto') {
-                        await addTransactionRecord('task_reward', task.reward);
-                        userTaskState.status = 'completed';
-                        newData.totalMined += task.reward;
-
-                        // Process referral task reward
-                        await processReferralTaskReward(user.id.toString(), task.reward);
-                        
-                        toast({
-                            title: "Reward Claimed!",
-                            description: `+${task.reward} USDT`,
-                        });
-                    } else { 
-                        userTaskState.status = 'pending_approval'; 
-                        
-                        toast({
-                            title: "Task Submitted!",
-                            description: "Pending admin approval.",
-                        });
-                    }
+                    // This case might not be needed anymore since auto tasks complete immediately
+                    userTaskState.status = 'completed';
+                    userTaskState.completedAt = new Date().toISOString();
+                    newData.totalMined += task.reward;
+                    
+                    await addTransactionRecord('task_reward', task.reward, {
+                        taskId: task.id,
+                        taskName: task.name,
+                        taskType: task.type
+                    });
+                    break;
+                    
+                case 'rejected':
+                    // Reset to new status for retry
+                    userTaskState.status = 'new';
+                    userTaskState.rejectedAt = undefined;
+                    userTaskState.rejectionReason = undefined;
                     break;
                     
                 default: 
@@ -297,13 +315,10 @@ export const useGameData = () => {
             
             newData.userTasks = { ...data.userTasks, [task.id]: userTaskState };
             await saveData(newData);
+            return true;
         } catch (error) {
             console.error('Error handling task action:', error);
-            toast({
-                title: "Error",
-                description: "Failed to process task. Please try again.",
-                variant: "destructive"
-            });
+            return false;
         }
     };
 
@@ -377,7 +392,6 @@ export const useGameData = () => {
             return { success: false, reason: "Failed to upgrade storage." };
         }
     };
-
 
     const requestWithdrawal = async (amount, address) => {
         if (!data || data.totalMined < amount) return { success: false, reason: "Insufficient balance." };
@@ -475,7 +489,7 @@ export const useGameData = () => {
             const updatedUserTasks = {
                 ...userData.userTasks,
                 [taskId]: { 
-                    status: 'new', // Reset to new so user can try again
+                    status: 'rejected', // Changed to 'rejected' instead of 'new'
                     rejectedAt: new Date().toISOString(),
                     rejectionReason: reason
                 }
@@ -501,10 +515,9 @@ export const useGameData = () => {
         }
     };
 
-    // At the end of your useGameData hook, update the return statement:
     return { 
         data, 
-        setData,  // Add this line
+        setData,
         loading,
         handleClaimStorage, 
         handleTaskAction, 
@@ -523,3 +536,4 @@ export const useGameData = () => {
         MAX_LEVEL
     };
 };
+              
