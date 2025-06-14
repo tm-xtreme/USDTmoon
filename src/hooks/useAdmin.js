@@ -419,9 +419,9 @@ export const useAdmin = () => {
         try {
             await updateWithdrawalStatus(withdrawalId, 'rejected');
             // Refund the amount to user
-            const userData = await getUser Data(userId);
+            const userData = await getUserData(userId);
             if (userData) {
-                await updateUser Data(userId, {
+                await updateUserData(userId, {
                     totalMined: userData.totalMined + amount
                 });
                 
@@ -446,9 +446,9 @@ export const useAdmin = () => {
         try {
             await updateDepositStatus(depositId, 'approved');
             // Add amount to user balance
-            const userData = await getUser Data(userId);
+            const userData = await getUserData(userId);
             if (userData) {
-                await updateUser Data(userId, {
+                await updateUserData(userId, {
                     totalMined: userData.totalMined + amount
                 });
                 
