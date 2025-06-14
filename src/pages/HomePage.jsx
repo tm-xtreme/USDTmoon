@@ -100,20 +100,28 @@ const TransactionHistory = ({ transactions, loading }) => {
         };
     };
 
-    const formatDate = (timestamp) => {
-        if (!timestamp) return 'Unknown date';
-        
+    const formatDate = (timestamp, dateString) => {
         try {
             let date;
-            if (timestamp.toDate) {
-                // Firestore timestamp
+            
+            // Try Firestore timestamp first
+            if (timestamp && timestamp.toDate) {
                 date = timestamp.toDate();
-            } else if (timestamp.seconds) {
-                // Firestore timestamp object
+            } 
+            // Try timestamp with seconds
+            else if (timestamp && timestamp.seconds) {
                 date = new Date(timestamp.seconds * 1000);
-            } else {
-                // Regular timestamp
+            }
+            // Try the date string
+            else if (dateString) {
+                date = new Date(dateString);
+            }
+            // Try timestamp as number
+            else if (timestamp) {
                 date = new Date(timestamp);
+            }
+            else {
+                return 'Unknown date';
             }
             
             return date.toLocaleString('en-US', {
@@ -131,7 +139,7 @@ const TransactionHistory = ({ transactions, loading }) => {
     const formatAmount = (amount) => {
         const numAmount = parseFloat(amount);
         if (isNaN(numAmount)) return '0.00000000';
-        return numAmount.toFixed(8);
+        return Math.abs(numAmount).toFixed(8);
     };
     
     return (
@@ -153,7 +161,7 @@ const TransactionHistory = ({ transactions, loading }) => {
                                         {config.label}
                                     </p>
                                     <p className="text-xs text-gray-500">
-                                        {formatDate(tx.createdAt)}
+                                        {formatDate(tx.createdAt, tx.date)}
                                     </p>
                                     {tx.status && (
                                         <span className={`inline-block mt-1 text-xs px-2 py-1 rounded-full ${
@@ -318,20 +326,44 @@ const HomePage = () => {
     // Load user transactions from Firestore
     useEffect(() => {
         const loadTransactions = async () => {
-            if (!data?.id) return;
+            if (!data?.id) {
+                console.log('No user ID available');
+                return;
+            }
             
             try {
                 setTransactionsLoading(true);
                 console.log('Loading transactions for user ID:', data.id);
                 
-                const userTransactions = await getUserTransactions(data.id, 20); // Limit to 20 recent transactions
+                const userTransactions = await getUserTransactions(data.id, 20);
                 console.log('Raw transactions from Firebase:', userTransactions);
                 
                 if (userTransactions && userTransactions.length > 0) {
                     // Sort transactions by creation date (newest first)
                     const sortedTransactions = userTransactions.sort((a, b) => {
-                        const dateA = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.createdAt);
-                        const dateB = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.createdAt);
+                        let dateA, dateB;
+                        
+                        // Handle Firestore timestamp
+                        if (a.createdAt?.toDate) {
+                            dateA = a.createdAt.toDate();
+                        } else if (a.createdAt?.seconds) {
+                            dateA = new Date(a.createdAt.seconds * 1000);
+                        } else if (a.date) {
+                            dateA = new Date(a.date);
+                        } else {
+                            dateA = new Date(0);
+                        }
+                        
+                        if (b.createdAt?.toDate) {
+                            dateB = b.createdAt.toDate();
+                        } else if (b.createdAt?.seconds) {
+                            dateB = new Date(b.createdAt.seconds * 1000);
+                        } else if (b.date) {
+                            dateB = new Date(b.date);
+                        } else {
+                            dateB = new Date(0);
+                        }
+                        
                         return dateB - dateA;
                     });
                     
@@ -365,11 +397,33 @@ const HomePage = () => {
         
         setTransactionsLoading(true);
         try {
+            console.log('Refreshing transactions for user:', data.id);
             const userTransactions = await getUserTransactions(data.id, 20);
+            
             if (userTransactions && userTransactions.length > 0) {
                 const sortedTransactions = userTransactions.sort((a, b) => {
-                    const dateA = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.createdAt);
-                    const dateB = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.createdAt);
+                    let dateA, dateB;
+                    
+                    if (a.createdAt?.toDate) {
+                        dateA = a.createdAt.toDate();
+                    } else if (a.createdAt?.seconds) {
+                        dateA = new Date(a.createdAt.seconds * 1000);
+                    } else if (a.date) {
+                        dateA = new Date(a.date);
+                    } else {
+                        dateA = new Date(0);
+                    }
+                    
+                    if (b.createdAt?.toDate) {
+                        dateB = b.createdAt.toDate();
+                    } else if (b.createdAt?.seconds) {
+                        dateB = new Date(b.createdAt.seconds * 1000);
+                    } else if (b.date) {
+                        dateB = new Date(b.date);
+                    } else {
+                        dateB = new Date(0);
+                    }
+                    
                     return dateB - dateA;
                 });
                 setTransactions(sortedTransactions);
