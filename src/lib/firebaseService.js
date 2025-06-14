@@ -366,15 +366,19 @@ export const sendAdminNotification = async (message) => {
   }
 };
 
-// Transaction Management
+// Transaction Management - UPDATED FOR NESTED STRUCTURE
 export const addTransaction = async (userId, transactionData) => {
   try {
-    const transactionsRef = collection(db, 'transactions');
+    // Add to the nested transactions collection: transactions > transactions
+    const transactionsRef = collection(db, 'transactions', 'transactions');
     const docRef = await addDoc(transactionsRef, {
-      userId,
+      userId: userId.toString(),
       ...transactionData,
-      createdAt: serverTimestamp()
+      amount: parseFloat(transactionData.amount),
+      createdAt: serverTimestamp(),
+      date: new Date().toISOString() // Keep both for compatibility
     });
+    console.log('Transaction added with ID:', docRef.id);
     return docRef.id;
   } catch (error) {
     console.error('Error adding transaction:', error);
@@ -384,10 +388,11 @@ export const addTransaction = async (userId, transactionData) => {
 
 export const getUserTransactions = async (userId, limitCount = 50) => {
   try {
-    const transactionsRef = collection(db, 'transactions');
+    // Query the nested transactions collection: transactions > transactions > documents
+    const transactionsRef = collection(db, 'transactions', 'transactions');
     const q = query(
       transactionsRef, 
-      where('userId', '==', userId),
+      where('userId', '==', userId.toString()), // Ensure userId is string
       orderBy('createdAt', 'desc'),
       limit(limitCount)
     );
@@ -396,9 +401,16 @@ export const getUserTransactions = async (userId, limitCount = 50) => {
     const transactions = [];
     
     querySnapshot.forEach((doc) => {
-      transactions.push({ id: doc.id, ...doc.data() });
+      const data = doc.data();
+      transactions.push({ 
+        id: doc.id, 
+        ...data,
+        // Ensure amount is a number
+        amount: parseFloat(data.amount) || 0
+      });
     });
     
+    console.log(`Found ${transactions.length} transactions for user ${userId}`);
     return transactions;
   } catch (error) {
     console.error('Error getting transactions:', error);
@@ -419,7 +431,7 @@ export const createWithdrawalRequest = async (userId, amount, address, username)
       createdAt: serverTimestamp()
     });
     
-    // Add transaction record
+    // Add transaction record using the updated function
     await addTransaction(userId, {
       type: 'withdrawal_request',
       amount: -amount,
@@ -554,7 +566,7 @@ export const updateDepositStatus = async (depositId, status) => {
   }
 };
 
-// Task Approval/Rejection Functions
+// Task Approval/Rejection Functions - UPDATED TO USE NESTED TRANSACTIONS
 export const approveTaskSubmission = async (submissionId, userId, taskReward) => {
   try {
     // Update submission status
@@ -567,7 +579,7 @@ export const approveTaskSubmission = async (submissionId, userId, taskReward) =>
         totalMined: userData.totalMined + taskReward
       });
       
-      // Add transaction record
+      // Add transaction record using the updated function
       await addTransaction(userId, {
         type: 'task_reward',
         amount: taskReward,
@@ -589,6 +601,78 @@ export const rejectTaskSubmission = async (submissionId, reason = '') => {
     return true;
   } catch (error) {
     console.error('Error rejecting task submission:', error);
+    throw error;
+  }
+};
+
+// Additional Transaction Functions for Claims and Fees
+export const addClaimTransaction = async (userId, claimAmount, feeAmount) => {
+  try {
+    // Add claim transaction
+    await addTransaction(userId, {
+      type: 'claim',
+      amount: claimAmount,
+      status: 'completed'
+    });
+    
+    // Add fee transaction if there's a fee
+    if (feeAmount > 0) {
+      await addTransaction(userId, {
+        type: 'fee',
+        amount: -feeAmount,
+        status: 'completed'
+      });
+    }
+    
+    return true;
+  } catch (error) {
+    console.error('Error adding claim transactions:', error);
+    throw error;
+  }
+};
+
+export const addUpgradeTransaction = async (userId, upgradeType, cost) => {
+  try {
+    await addTransaction(userId, {
+      type: upgradeType, // 'upgrade_miner' or 'upgrade_storage'
+      amount: -cost,
+      status: 'completed'
+    });
+    
+    return true;
+  } catch (error) {
+    console.error('Error adding upgrade transaction:', error);
+    throw error;
+  }
+};
+
+export const addDepositTransaction = async (userId, amount) => {
+  try {
+    await addTransaction(userId, {
+      type: 'deposit_approved',
+      amount: amount,
+      status: 'completed'
+    });
+    
+    return true;
+  } catch (error) {
+    console.error('Error adding deposit transaction:', error);
+    throw error;
+  }
+};
+
+export const addWithdrawalRefundTransaction = async (userId, amount, reason) => {
+  try {
+    await addTransaction(userId, {
+      type: 'withdrawal_refund',
+      amount: amount,
+      status: 'completed',
+      reason: reason || 'Withdrawal rejected by admin'
+    });
+    
+    return true;
+  } catch (error) {
+    console.error('Error adding withdrawal refund transaction:', error);
     throw error;
   }
 };
@@ -666,3 +750,28 @@ export const subscribeToAdminNotifications = (callback) => {
     callback(notifications);
   });
 };
+
+// Real-time listener for user transactions
+export const subscribeToUserTransactions = (userId, callback) => {
+  const transactionsRef = collection(db, 'transactions', 'transactions');
+  const q = query(
+    transactionsRef, 
+    where('userId', '==', userId.toString()),
+    orderBy('createdAt', 'desc'),
+    limit(50)
+  );
+  
+  return onSnapshot(q, (querySnapshot) => {
+    const transactions = [];
+    querySnapshot.forEach((doc) => {
+      const data = doc.data();
+      transactions.push({ 
+        id: doc.id, 
+        ...data,
+        amount: parseFloat(data.amount) || 0
+      });
+    });
+    callback(transactions);
+  });
+};
+                     
