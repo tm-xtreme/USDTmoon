@@ -4,15 +4,13 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { useGameData } from '@/hooks/useGameData';
 import { getAllTasks } from '@/lib/firebaseService';
-import { useTelegram } from '@/hooks/useTelegram';
 import * as Icons from 'lucide-react';
 
 const TaskItem = ({ task }) => {
     const { toast } = useToast();
     const { data: gameData, handleTaskAction } = useGameData();
-    const { user } = useTelegram();
     const [processing, setProcessing] = useState(false);
-    const [hasVisited, setHasVisited] = useState(false); // Track if user has visited the link
+    const [hasVisited, setHasVisited] = useState(false);
     const userTask = gameData?.userTasks?.[task.id] || { status: 'new' };
     
     const IconComponent = Icons[task.icon] || Icons['Gift'];
@@ -21,14 +19,12 @@ const TaskItem = ({ task }) => {
         switch (userTask.status) {
             case 'new':
                 if (task.type === 'auto') {
-                    // Auto task (Telegram)
                     if (!hasVisited) {
                         return { text: 'Join', disabled: false, color: 'bg-brand-yellow text-black' };
                     } else {
                         return { text: 'Claim', disabled: false, color: 'bg-green-500 text-white' };
                     }
                 } else {
-                    // Manual task
                     if (!hasVisited) {
                         return { text: 'Start', disabled: false, color: 'bg-brand-yellow text-black' };
                     } else {
@@ -48,25 +44,6 @@ const TaskItem = ({ task }) => {
         }
     };
 
-    // Extract channel username from various formats
-    const extractChannelUsername = (target) => {
-        if (!target) return null;
-        
-        // Remove @ if present
-        let username = target.replace('@', '');
-        
-        // Extract from t.me URLs
-        if (target.includes('t.me/')) {
-            const match = target.match(/t\.me\/([^/?]+)/);
-            username = match ? match[1] : username;
-        }
-        
-        // Remove any additional parameters
-        username = username.split('?')[0].split('/')[0];
-        
-        return username;
-    };
-
     const handleAction = async () => {
         if (processing) return;
         
@@ -83,7 +60,6 @@ const TaskItem = ({ task }) => {
                                 ? `https://t.me/${task.target.replace('@', '')}` 
                                 : task.target;
                             
-                            // Open the channel in a new window/tab
                             window.open(channelUrl, '_blank');
                             setHasVisited(true);
                             
@@ -93,80 +69,20 @@ const TaskItem = ({ task }) => {
                             });
                         }
                     } else {
-                        // Second click: Verify membership and claim
-                        const channelUsername = extractChannelUsername(task.target);
+                        // Second click: Use hook's handleTaskAction for verification
+                        const result = await handleTaskAction(task);
                         
-                        if (!channelUsername) {
+                        if (result) {
                             toast({
-                                title: 'Invalid Channel',
-                                description: 'Channel information is not valid.',
-                                variant: 'destructive'
+                                title: 'Task Completed! 🎉',
+                                description: `You earned ${task.reward} USDT!`,
                             });
-                            return;
-                        }
-                        
-                        console.log('Checking membership for:', channelUsername, 'User ID:', user?.id);
-                        
-                        try {
-                            const apiUrl = `https://api.telegram.org/bot8158970226:AAHcHhlZs5sL_eClx4UoGt9mx0edE2-N-Sw/getChatMember?chat_id=@${channelUsername}&user_id=${user?.id}`;
-                            const response = await fetch(apiUrl);
-                            const data = await response.json();
-                            
-                            console.log('Telegram API Response:', data);
-                            
-                            if (data.ok) {
-                                const status = data.result.status;
-                                console.log('User status in channel:', status);
-                                
-                                if (['member', 'administrator', 'creator'].includes(status)) {
-                                    // User is verified, complete task
-                                    await handleTaskAction(task);
-                                    
-                                    toast({
-                                        title: 'Task Completed! 🎉',
-                                        description: `You earned ${task.reward} USDT!`,
-                                    });
-                                } else if (status === 'left' || status === 'kicked') {
-                                    toast({
-                                        title: 'Not a Member',
-                                        description: 'Please join the channel first, then try again.',
-                                        variant: 'destructive'
-                                    });
-                                } else {
-                                    toast({
-                                        title: 'Verification Failed',
-                                        description: `Status: ${status}. Please make sure you joined the channel.`,
-                                        variant: 'destructive'
-                                    });
-                                }
-                            } else {
-                                console.error('Telegram API Error:', data);
-                                
-                                if (data.error_code === 400) {
-                                    toast({
-                                        title: 'Channel Error',
-                                        description: 'Unable to verify membership. Please contact support.',
-                                        variant: 'destructive'
-                                    });
-                                } else if (data.error_code === 403) {
-                                    toast({
-                                        title: 'Verification Unavailable',
-                                        description: 'Automatic verification is not available for this channel.',
-                                        variant: 'destructive'
-                                    });
-                                } else {
-                                    toast({
-                                        title: 'Verification Error',
-                                        description: data.description || 'Please try again later.',
-                                        variant: 'destructive'
-                                    });
-                                }
-                            }
-                        } catch (apiError) {
-                            console.error('Error calling Telegram API:', apiError);
+                        } else {
+                            // Reset to initial state if verification failed
+                            setHasVisited(false);
                             toast({
-                                title: 'Network Error',
-                                description: 'Unable to verify membership. Please check your connection and try again.',
+                                title: 'Verification Failed',
+                                description: 'Please make sure you joined the channel and try again.',
                                 variant: 'destructive'
                             });
                         }
@@ -177,51 +93,73 @@ const TaskItem = ({ task }) => {
                         // First click: Open link and mark as visited
                         if (task.target && (task.target.startsWith('http') || task.target.startsWith('https'))) {
                             window.open(task.target, '_blank');
-                            setHasVisited(true);
-                            
-                            toast({
-                                title: 'Link Opened',
-                                description: 'Please complete the task and then click "Request" for verification.',
-                            });
-                        } else {
-                            // No link to open, just mark as visited
-                            setHasVisited(true);
-                            
-                            toast({
-                                title: 'Task Started',
-                                description: 'Please complete the task and then click "Request" for verification.',
-                            });
                         }
-                    } else {
-                        // Second click: Submit for admin approval
-                        await handleTaskAction(task);
+                        setHasVisited(true);
                         
                         toast({
-                            title: "Task Submitted! 📋",
-                            description: "Your submission is pending admin review.",
+                            title: 'Task Started',
+                            description: 'Please complete the task and then click "Request" for verification.',
                         });
+                    } else {
+                        // Second click: Submit for admin approval
+                        const result = await handleTaskAction(task);
+                        
+                        if (result) {
+                            toast({
+                                title: "Task Submitted! 📋",
+                                description: "Your submission is pending admin review.",
+                            });
+                        } else {
+                            setHasVisited(false);
+                            toast({
+                                title: "Submission Failed",
+                                description: "Failed to submit task. Please try again.",
+                                variant: 'destructive'
+                            });
+                        }
                     }
                 }
             } else if (userTask.status === 'pending_claim') {
                 // Claim reward
-                await handleTaskAction(task);
+                const result = await handleTaskAction(task);
                 
-                toast({
-                    title: "Reward Claimed! 💰",
-                    description: `You received ${task.reward} USDT!`,
-                });
+                if (result) {
+                    toast({
+                        title: "Reward Claimed! 💰",
+                        description: `You received ${task.reward} USDT!`,
+                    });
+                } else {
+                    toast({
+                        title: "Claim Failed",
+                        description: "Failed to claim reward. Please try again.",
+                        variant: 'destructive'
+                    });
+                }
             } else if (userTask.status === 'rejected') {
                 // Reset and try again
-                setHasVisited(false); // Reset visited state
-                await handleTaskAction(task);
+                setHasVisited(false);
+                const result = await handleTaskAction(task);
                 
-                toast({
-                    title: "Task Reset",
-                    description: "You can now retry this task.",
-                });
+                if (result) {
+                    toast({
+                        title: "Task Reset",
+                        description: "You can now retry this task.",
+                    });
+                } else {
+                    toast({
+                        title: "Reset Failed",
+                        description: "Failed to reset task. Please try again.",
+                        variant: 'destructive'
+                    });
+                }
             }
         } catch (error) {
             console.error('Error handling task action:', error);
+            
+            if (userTask.status === 'new') {
+                setHasVisited(false);
+            }
+            
             toast({
                 title: "Error",
                 description: "Something went wrong. Please try again.",
@@ -513,3 +451,4 @@ const TasksPage = () => {
 };
 
 export default TasksPage;
+                                        
