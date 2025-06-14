@@ -6,10 +6,10 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { ChevronRight, CheckCircle, ArrowUpCircle, ArrowDownCircle, Download, Upload } from 'lucide-react';
+import { ChevronRight, CheckCircle, ArrowUpCircle, ArrowDownCircle, Download, Upload, Gift, Zap, Database, RefreshCw } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useNavigate } from 'react-router-dom';
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter, SheetClose } from '@/components/ui/sheet';
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from '@/components/ui/sheet';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { getUserTransactions, createWithdrawalRequest } from '@/lib/firebaseService';
@@ -25,63 +25,165 @@ const TransactionHistory = ({ transactions, loading }) => {
     }
 
     if (!transactions || transactions.length === 0) {
-        return <p className="text-center text-gray-500 py-8">No transactions yet.</p>;
+        return (
+            <div className="text-center py-8 text-gray-500">
+                <Database className="mx-auto h-12 w-12 text-gray-300 mb-4" />
+                <p>No transactions yet.</p>
+                <p className="text-sm">Start mining or complete tasks to see your transaction history!</p>
+            </div>
+        );
     }
     
-    const ICONS = {
-        claim: <ArrowUpCircle className="h-5 w-5 text-green-500" />,
-        fee: <ArrowDownCircle className="h-5 w-5 text-red-500" />,
-        task_reward: <ArrowUpCircle className="h-5 w-5 text-blue-500" />,
-        upgrade_miner: <ArrowDownCircle className="h-5 w-5 text-purple-500" />,
-        upgrade_storage: <ArrowDownCircle className="h-5 w-5 text-orange-500" />,
-        withdrawal_request: <Upload className="h-5 w-5 text-red-500" />,
-        withdrawal_refund: <Download className="h-5 w-5 text-orange-500" />,
-        deposit: <Download className="h-5 w-5 text-green-500" />,
-        deposit_approved: <Download className="h-5 w-5 text-green-500" />,
+    const TRANSACTION_CONFIG = {
+        claim: {
+            icon: <ArrowUpCircle className="h-5 w-5 text-green-500" />,
+            label: "Storage Claim",
+            bgColor: "bg-green-50",
+            textColor: "text-green-700"
+        },
+        fee: {
+            icon: <ArrowDownCircle className="h-5 w-5 text-red-500" />,
+            label: "Claim Fee",
+            bgColor: "bg-red-50",
+            textColor: "text-red-700"
+        },
+        task_reward: {
+            icon: <Gift className="h-5 w-5 text-blue-500" />,
+            label: "Task Reward",
+            bgColor: "bg-blue-50",
+            textColor: "text-blue-700"
+        },
+        upgrade_miner: {
+            icon: <Zap className="h-5 w-5 text-purple-500" />,
+            label: "Miner Upgrade",
+            bgColor: "bg-purple-50",
+            textColor: "text-purple-700"
+        },
+        upgrade_storage: {
+            icon: <Database className="h-5 w-5 text-orange-500" />,
+            label: "Storage Upgrade",
+            bgColor: "bg-orange-50",
+            textColor: "text-orange-700"
+        },
+        withdrawal_request: {
+            icon: <Upload className="h-5 w-5 text-red-500" />,
+            label: "Withdrawal Request",
+            bgColor: "bg-red-50",
+            textColor: "text-red-700"
+        },
+        withdrawal_refund: {
+            icon: <RefreshCw className="h-5 w-5 text-orange-500" />,
+            label: "Withdrawal Refund",
+            bgColor: "bg-orange-50",
+            textColor: "text-orange-700"
+        },
+        deposit: {
+            icon: <Download className="h-5 w-5 text-green-500" />,
+            label: "Deposit",
+            bgColor: "bg-green-50",
+            textColor: "text-green-700"
+        },
+        deposit_approved: {
+            icon: <Download className="h-5 w-5 text-green-500" />,
+            label: "Deposit Approved",
+            bgColor: "bg-green-50",
+            textColor: "text-green-700"
+        }
     };
 
-    const LABELS = {
-        claim: "Storage Claim",
-        fee: "Claim Fee",
-        task_reward: "Task Reward",
-        upgrade_miner: "Miner Upgrade",
-        upgrade_storage: "Storage Upgrade",
-        withdrawal_request: "Withdrawal Request",
-        withdrawal_refund: "Withdrawal Refund",
-        deposit: "Deposit",
-        deposit_approved: "Deposit Approved",
+    const getTransactionConfig = (type) => {
+        return TRANSACTION_CONFIG[type] || {
+            icon: <ArrowUpCircle className="h-5 w-5 text-gray-500" />,
+            label: "Transaction",
+            bgColor: "bg-gray-50",
+            textColor: "text-gray-700"
+        };
+    };
+
+    const formatDate = (timestamp) => {
+        if (!timestamp) return 'Unknown date';
+        
+        try {
+            let date;
+            if (timestamp.toDate) {
+                // Firestore timestamp
+                date = timestamp.toDate();
+            } else if (timestamp.seconds) {
+                // Firestore timestamp object
+                date = new Date(timestamp.seconds * 1000);
+            } else {
+                // Regular timestamp
+                date = new Date(timestamp);
+            }
+            
+            return date.toLocaleString('en-US', {
+                month: 'short',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+        } catch (error) {
+            console.error('Error formatting date:', error);
+            return 'Invalid date';
+        }
+    };
+
+    const formatAmount = (amount) => {
+        const numAmount = parseFloat(amount);
+        if (isNaN(numAmount)) return '0.00000000';
+        return numAmount.toFixed(8);
     };
     
     return (
-        <div className="space-y-2 py-4">
-            {transactions.map(tx => (
-                <div key={tx.id} className="flex items-center justify-between text-sm p-3 bg-gray-50 rounded-lg">
-                    <div className="flex items-center space-x-3">
-                        {ICONS[tx.type] || <ArrowUpCircle className="h-5 w-5 text-gray-500" />}
-                        <div>
-                            <p className="font-semibold">{LABELS[tx.type] || 'Transaction'}</p>
-                            <p className="text-xs text-gray-400">
-                                {tx.createdAt?.toDate ? 
-                                    tx.createdAt.toDate().toLocaleString() : 
-                                    new Date(tx.createdAt).toLocaleString()
-                                }
-                            </p>
-                            {tx.status && (
-                                <span className={`text-xs px-2 py-1 rounded-full ${
-                                    tx.status === 'completed' ? 'bg-green-100 text-green-800' :
-                                    tx.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
-                                    'bg-red-100 text-red-800'
+        <div className="space-y-3 py-4">
+            {transactions.map((tx, index) => {
+                const config = getTransactionConfig(tx.type);
+                const amount = parseFloat(tx.amount);
+                const isPositive = amount > 0;
+                
+                return (
+                    <div key={tx.id || index} className={`p-4 rounded-lg border ${config.bgColor}`}>
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center space-x-3">
+                                <div className="p-2 bg-white rounded-full shadow-sm">
+                                    {config.icon}
+                                </div>
+                                <div>
+                                    <p className={`font-semibold ${config.textColor}`}>
+                                        {config.label}
+                                    </p>
+                                    <p className="text-xs text-gray-500">
+                                        {formatDate(tx.createdAt)}
+                                    </p>
+                                    {tx.status && (
+                                        <span className={`inline-block mt-1 text-xs px-2 py-1 rounded-full ${
+                                            tx.status === 'completed' ? 'bg-green-100 text-green-800' :
+                                            tx.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
+                                            tx.status === 'rejected' ? 'bg-red-100 text-red-800' :
+                                            'bg-gray-100 text-gray-800'
+                                        }`}>
+                                            {tx.status.charAt(0).toUpperCase() + tx.status.slice(1)}
+                                        </span>
+                                    )}
+                                    {tx.reason && (
+                                        <p className="text-xs text-gray-400 mt-1">
+                                            {tx.reason}
+                                        </p>
+                                    )}
+                                </div>
+                            </div>
+                            <div className="text-right">
+                                <p className={`font-bold text-lg ${
+                                    isPositive ? 'text-green-600' : 'text-red-600'
                                 }`}>
-                                    {tx.status}
-                                </span>
-                            )}
+                                    {isPositive ? '+' : ''}{formatAmount(amount)}
+                                </p>
+                                <p className="text-xs text-gray-500">USDT</p>
+                            </div>
                         </div>
                     </div>
-                    <p className={`font-bold ${tx.amount > 0 ? 'text-green-500' : 'text-red-500'}`}>
-                        {tx.amount > 0 ? '+' : ''}{parseFloat(tx.amount).toFixed(8)} USDT
-                    </p>
-                </div>
-            ))}
+                );
+            })}
         </div>
     );
 };
@@ -211,49 +313,83 @@ const HomePage = () => {
     const navigate = useNavigate();
     const [isWithdrawSheetOpen, setIsWithdrawSheetOpen] = useState(false);
     const [transactions, setTransactions] = useState([]);
-    const [transactionsLoading, setTransactionsLoading] = useState(true);
+    const [transactionsLoading, setTransactionsLoading] = useState(false);
 
     // Load user transactions from Firestore
     useEffect(() => {
         const loadTransactions = async () => {
-            if (data?.id) {
-                try {
-                    setTransactionsLoading(true);
-                    console.log('Loading transactions for user:', data.id); // Debug log
-                    const userTransactions = await getUserTransactions(data.id);
-                    console.log('Loaded transactions:', userTransactions); // Debug log
-                    setTransactions(userTransactions || []);
-                } catch (error) {
-                    console.error('Error loading transactions:', error);
+            if (!data?.id) return;
+            
+            try {
+                setTransactionsLoading(true);
+                console.log('Loading transactions for user ID:', data.id);
+                
+                const userTransactions = await getUserTransactions(data.id, 20); // Limit to 20 recent transactions
+                console.log('Raw transactions from Firebase:', userTransactions);
+                
+                if (userTransactions && userTransactions.length > 0) {
+                    // Sort transactions by creation date (newest first)
+                    const sortedTransactions = userTransactions.sort((a, b) => {
+                        const dateA = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.createdAt);
+                        const dateB = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.createdAt);
+                        return dateB - dateA;
+                    });
+                    
+                    setTransactions(sortedTransactions);
+                    console.log('Processed transactions:', sortedTransactions);
+                } else {
                     setTransactions([]);
-                } finally {
-                    setTransactionsLoading(false);
+                    console.log('No transactions found for user');
                 }
+            } catch (error) {
+                console.error('Error loading transactions:', error);
+                setTransactions([]);
+                toast({
+                    title: "Error",
+                    description: "Failed to load transaction history.",
+                    variant: "destructive"
+                });
+            } finally {
+                setTransactionsLoading(false);
             }
         };
 
         if (isInitialized && data?.id) {
             loadTransactions();
         }
-    }, [data?.id, isInitialized]);
+    }, [data?.id, isInitialized, toast]);
 
     // Refresh transactions function
     const refreshTransactions = async () => {
-        if (data?.id) {
-            setTransactionsLoading(true);
-            try {
-                const userTransactions = await getUserTransactions(data.id);
-                setTransactions(userTransactions || []);
-            } catch (error) {
-                console.error('Error reloading transactions:', error);
-                toast({
-                    title: "Error",
-                    description: "Failed to load transactions.",
-                    variant: "destructive"
+        if (!data?.id) return;
+        
+        setTransactionsLoading(true);
+        try {
+            const userTransactions = await getUserTransactions(data.id, 20);
+            if (userTransactions && userTransactions.length > 0) {
+                const sortedTransactions = userTransactions.sort((a, b) => {
+                    const dateA = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.createdAt);
+                    const dateB = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.createdAt);
+                    return dateB - dateA;
                 });
-            } finally {
-                setTransactionsLoading(false);
+                setTransactions(sortedTransactions);
+            } else {
+                setTransactions([]);
             }
+            
+            toast({
+                title: "Refreshed",
+                description: "Transaction history updated.",
+            });
+        } catch (error) {
+            console.error('Error refreshing transactions:', error);
+            toast({
+                title: "Error",
+                description: "Failed to refresh transactions.",
+                variant: "destructive"
+            });
+        } finally {
+            setTransactionsLoading(false);
         }
     };
 
@@ -317,7 +453,14 @@ const HomePage = () => {
             <Tabs defaultValue="tokens" className="w-full">
                 <TabsList className="grid w-full grid-cols-2 bg-gray-200">
                     <TabsTrigger value="tokens">Tokens</TabsTrigger>
-                    <TabsTrigger value="transactions">Transactions</TabsTrigger>
+                    <TabsTrigger value="transactions" className="relative">
+                        Transactions
+                        {transactions.length > 0 && (
+                            <span className="ml-1 bg-brand-yellow text-black text-xs px-2 py-1 rounded-full">
+                                {transactions.length}
+                            </span>
+                        )}
+                    </TabsTrigger>
                 </TabsList>
                 
                 <TabsContent value="tokens">
@@ -347,7 +490,7 @@ const HomePage = () => {
                                 </div>
                                 <div className="mt-2">
                                     {isStorageFull ? (
-                                        <div className="flex items-center space-x-1 text-brand-green">
+                                        <div className="flex items-center space-x-1 text-green-600">
                                             <CheckCircle className="h-4 w-4" />
                                             <span className="font-bold text-sm">Full - Tap to Claim</span>
                                         </div>
@@ -372,8 +515,10 @@ const HomePage = () => {
                                     size="sm"
                                     onClick={refreshTransactions}
                                     disabled={transactionsLoading}
+                                    className="flex items-center space-x-2"
                                 >
-                                    {transactionsLoading ? 'Loading...' : 'Refresh'}
+                                    <RefreshCw className={`h-4 w-4 ${transactionsLoading ? 'animate-spin' : ''}`} />
+                                    <span>{transactionsLoading ? 'Loading...' : 'Refresh'}</span>
                                 </Button>
                             </div>
                             <TransactionHistory 
