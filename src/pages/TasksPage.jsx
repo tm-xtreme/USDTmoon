@@ -12,8 +12,26 @@ const TaskItem = ({ task }) => {
     const [processing, setProcessing] = useState(false);
     const [hasVisited, setHasVisited] = useState(false);
     
-    // Get task status from taskSubmissions instead of userTasks
-    const userTask = gameData?.userTasks?.[task.id] || { status: 'new' };
+    // Map taskSubmissions status to the original UI status for compatibility
+    const mapTaskStatus = (submissionStatus) => {
+        switch (submissionStatus) {
+            case 'pending_approval':
+                return 'pending_approval';
+            case 'approved':
+                return 'completed'; // Map approved to completed for UI
+            case 'rejected':
+                return 'rejected';
+            default:
+                return 'new';
+        }
+    };
+
+    const userTask = gameData?.userTasks?.[task.id] 
+        ? { 
+            ...gameData.userTasks[task.id], 
+            status: mapTaskStatus(gameData.userTasks[task.id].status) 
+          }
+        : { status: 'new' };
     
     const IconComponent = Icons[task.icon] || Icons['Gift'];
 
@@ -33,9 +51,11 @@ const TaskItem = ({ task }) => {
                         return { text: 'Request', disabled: false, color: 'bg-blue-500 text-white' };
                     }
                 }
+            case 'pending_claim':
+                return { text: 'Claim', disabled: false, color: 'bg-green-500 text-white' };
             case 'pending_approval':
                 return { text: 'Pending', disabled: true, color: 'bg-orange-400 text-white' };
-            case 'approved':
+            case 'completed':
                 return { text: 'Done', disabled: true, color: 'bg-green-600 text-white', icon: <Icons.Check className="h-4 w-4"/> };
             case 'rejected':
                 return { text: 'Retry', disabled: false, color: 'bg-red-500 text-white' };
@@ -50,7 +70,7 @@ const TaskItem = ({ task }) => {
         setProcessing(true);
         
         try {
-            if (userTask.status === 'new' || userTask.status === 'rejected') {
+            if (userTask.status === 'new') {
                 if (task.type === 'auto') {
                     // Auto task (Telegram) flow
                     if (!hasVisited) {
@@ -69,7 +89,7 @@ const TaskItem = ({ task }) => {
                             });
                         }
                     } else {
-                        // Second click: Use hook's handleTaskAction for auto verification
+                        // Second click: Use hook's handleTaskAction for verification
                         const result = await handleTaskAction(task);
                         
                         if (result) {
@@ -77,7 +97,7 @@ const TaskItem = ({ task }) => {
                                 title: 'Task Completed! 🎉',
                                 description: `You earned ${task.reward} USDT!`,
                             });
-                            setHasVisited(false); // Reset for next time
+                            setHasVisited(false); // Reset for future use
                         } else {
                             // Reset to initial state if verification failed
                             setHasVisited(false);
@@ -110,7 +130,7 @@ const TaskItem = ({ task }) => {
                                 title: "Task Submitted! 📋",
                                 description: "Your submission is pending admin review.",
                             });
-                            setHasVisited(false); // Reset for next time
+                            setHasVisited(false); // Reset for future use
                         } else {
                             setHasVisited(false);
                             toast({
@@ -121,11 +141,37 @@ const TaskItem = ({ task }) => {
                         }
                     }
                 }
+            } else if (userTask.status === 'pending_claim') {
+                // Claim reward (this case might not be used in new system but kept for compatibility)
+                const result = await handleTaskAction(task);
+                
+                if (result) {
+                    toast({
+                        title: "Reward Claimed! 💰",
+                        description: `You received ${task.reward} USDT!`,
+                    });
+                } else {
+                    toast({
+                        title: "Claim Failed",
+                        description: "Failed to claim reward. Please try again.",
+                        variant: 'destructive'
+                    });
+                }
+            } else if (userTask.status === 'rejected') {
+                // Reset and try again
+                setHasVisited(false);
+                
+                // For rejected tasks, we need to allow retry
+                // The handleTaskAction should handle resetting the task status
+                toast({
+                    title: "Task Reset",
+                    description: "You can now retry this task.",
+                });
             }
         } catch (error) {
             console.error('Error handling task action:', error);
             
-            if (userTask.status === 'new' || userTask.status === 'rejected') {
+            if (userTask.status === 'new') {
                 setHasVisited(false);
             }
             
@@ -220,7 +266,7 @@ const TaskItem = ({ task }) => {
                             </div>
                         )}
                         
-                        {userTask.status === 'approved' && (
+                        {userTask.status === 'completed' && (
                             <div className="mt-3 p-2 bg-green-50 border border-green-200 rounded-lg">
                                 <p className="text-xs text-green-700 flex items-center">
                                     <Icons.CheckCircle className="h-3 w-3 mr-1" />
@@ -230,7 +276,7 @@ const TaskItem = ({ task }) => {
                         )}
 
                         {/* Instructions for next step */}
-                        {(userTask.status === 'new' || userTask.status === 'rejected') && hasVisited && (
+                        {userTask.status === 'new' && hasVisited && (
                             <div className="mt-3 p-2 bg-blue-50 border border-blue-200 rounded-lg">
                                 <p className="text-xs text-blue-700 flex items-center">
                                     <Icons.Info className="h-3 w-3 mr-1" />
@@ -298,20 +344,26 @@ const TasksPage = () => {
         );
     }
 
-    // Filter tasks by status using taskSubmissions data
+    // Filter tasks by status - using the mapped status for UI compatibility
     const availableTasks = tasks.filter(t => {
-        const userTaskStatus = gameData.userTasks?.[t.id]?.status;
-        return !userTaskStatus || userTaskStatus === 'new' || userTaskStatus === 'rejected';
+        const submission = gameData.userTasks?.[t.id];
+        if (!submission) return true; // No submission = available
+        const mappedStatus = submission.status === 'approved' ? 'completed' : submission.status;
+        return !mappedStatus || mappedStatus === 'new' || mappedStatus === 'rejected';
     });
 
     const pendingTasks = tasks.filter(t => {
-        const userTaskStatus = gameData.userTasks?.[t.id]?.status;
-        return userTaskStatus === 'pending_approval';
+        const submission = gameData.userTasks?.[t.id];
+        if (!submission) return false;
+        const mappedStatus = submission.status === 'approved' ? 'completed' : submission.status;
+        return mappedStatus === 'pending_approval' || mappedStatus === 'pending_claim';
     });
 
     const completedTasks = tasks.filter(t => {
-        const userTaskStatus = gameData.userTasks?.[t.id]?.status;
-        return userTaskStatus === 'approved';
+        const submission = gameData.userTasks?.[t.id];
+        if (!submission) return false;
+        const mappedStatus = submission.status === 'approved' ? 'completed' : submission.status;
+        return mappedStatus === 'completed';
     });
     
     return (
