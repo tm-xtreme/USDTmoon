@@ -6,7 +6,7 @@ import { useGameData } from '@/hooks/useGameData';
 import { getAllTasks } from '@/lib/firebaseService';
 import * as Icons from 'lucide-react';
 
-const TaskItem = ({ task }) => {
+const TaskItem = ({ task, userSubmission }) => {
     const { toast } = useToast();
     const { data: gameData, handleTaskAction } = useGameData();
     const [processing, setProcessing] = useState(false);
@@ -26,14 +26,21 @@ const TaskItem = ({ task }) => {
         }
     };
 
-    const userTask = gameData?.userTasks?.[task.id] 
+    // Get user task status from submission
+    const userTask = userSubmission 
         ? { 
-            ...gameData.userTasks[task.id], 
-            status: mapTaskStatus(gameData.userTasks[task.id].status) 
+            ...userSubmission, 
+            status: mapTaskStatus(userSubmission.status),
+            rejectionReason: userSubmission.rejectionReason
           }
         : { status: 'new' };
     
     const IconComponent = Icons[task.icon] || Icons['Gift'];
+
+    // Debug logging
+    useEffect(() => {
+        console.log('Task:', task.id, 'UserSubmission:', userSubmission, 'MappedStatus:', userTask.status);
+    }, [task.id, userSubmission, userTask.status]);
 
     const getButtonInfo = () => {
         switch (userTask.status) {
@@ -75,7 +82,7 @@ const TaskItem = ({ task }) => {
                     // Auto task (Telegram) flow
                     if (!hasVisited) {
                         // First click: Open channel and mark as visited
-                        if (task.target.includes('t.me') || task.target.startsWith('@')) {
+                        if (task.target && (task.target.includes('t.me') || task.target.startsWith('@'))) {
                             const channelUrl = task.target.startsWith('@') 
                                 ? `https://t.me/${task.target.replace('@', '')}` 
                                 : task.target;
@@ -86,6 +93,12 @@ const TaskItem = ({ task }) => {
                             toast({
                                 title: 'Channel Opened',
                                 description: 'Please join the channel and then click "Claim" to verify.',
+                            });
+                        } else {
+                            toast({
+                                title: 'Invalid Link',
+                                description: 'This task does not have a valid Telegram link.',
+                                variant: 'destructive'
                             });
                         }
                     } else {
@@ -162,11 +175,20 @@ const TaskItem = ({ task }) => {
                 setHasVisited(false);
                 
                 // For rejected tasks, we need to allow retry
-                // The handleTaskAction should handle resetting the task status
-                toast({
-                    title: "Task Reset",
-                    description: "You can now retry this task.",
-                });
+                const result = await handleTaskAction(task, 'reset');
+                
+                if (result) {
+                    toast({
+                        title: "Task Reset",
+                        description: "You can now retry this task.",
+                    });
+                } else {
+                    toast({
+                        title: "Reset Failed",
+                        description: "Failed to reset task. Please try again.",
+                        variant: 'destructive'
+                    });
+                }
             }
         } catch (error) {
             console.error('Error handling task action:', error);
@@ -271,6 +293,11 @@ const TaskItem = ({ task }) => {
                                 <p className="text-xs text-green-700 flex items-center">
                                     <Icons.CheckCircle className="h-3 w-3 mr-1" />
                                     Task completed successfully
+                                    {userSubmission?.approvedAt && (
+                                        <span className="ml-2 text-xs text-gray-500">
+                                            • {new Date(userSubmission.approvedAt.toDate()).toLocaleDateString()}
+                                        </span>
+                                    )}
                                 </p>
                             </div>
                         )}
@@ -297,18 +324,32 @@ const TaskItem = ({ task }) => {
 const TasksPage = () => {
     const { data: gameData } = useGameData();
     const [tasks, setTasks] = useState([]);
+    const [taskSubmissions, setTaskSubmissions] = useState([]);
     const [loading, setLoading] = useState(true);
     const { toast } = useToast();
 
     useEffect(() => {
-        const fetchTasks = async () => {
+        const fetchData = async () => {
             try {
                 setLoading(true);
+                
+                // Fetch tasks
                 const tasksData = await getAllTasks();
                 console.log('Fetched tasks:', tasksData);
                 setTasks(tasksData || []);
+                
+                // Fetch user's task submissions
+                if (gameData?.userId) {
+                    // You'll need to create this function in your firebaseService
+                    // const userSubmissions = await getUserTaskSubmissions(gameData.userId);
+                    // For now, assuming it's available in gameData
+                    const userSubmissions = gameData?.taskSubmissions || [];
+                    console.log('User submissions:', userSubmissions);
+                    setTaskSubmissions(userSubmissions);
+                }
+                
             } catch (error) {
-                console.error('Error fetching tasks:', error);
+                console.error('Error fetching data:', error);
                 toast({
                     title: "Error",
                     description: "Failed to load tasks. Please try again.",
@@ -319,8 +360,8 @@ const TasksPage = () => {
             }
         };
 
-        fetchTasks();
-    }, [toast]);
+        fetchData();
+    }, [toast, gameData?.userId]);
 
     if (loading) {
         return (
@@ -344,21 +385,44 @@ const TasksPage = () => {
         );
     }
 
-    // Filter tasks by status
+    // Create a map of taskId to submission for easy lookup
+    const submissionMap = {};
+    if (taskSubmissions && Array.isArray(taskSubmissions)) {
+        taskSubmissions.forEach(submission => {
+            submissionMap[submission.taskId] = submission;
+        });
+    }
+
+    // Filter tasks by status with error handling
     const availableTasks = tasks.filter(t => {
-        const submission = gameData.userTasks?.[t.id];
-        if (!submission) return true; // No submission = available
-        return submission.status === 'new' || submission.status === 'rejected';
+        try {
+            const submission = submissionMap[t.id];
+            if (!submission) return true; // No submission = available
+            return submission.status === 'rejected';
+        } catch (error) {
+            console.error('Error filtering available tasks:', error);
+            return true; // Default to available if error
+        }
     });
 
     const pendingTasks = tasks.filter(t => {
-        const submission = gameData.userTasks?.[t.id];
-        return submission?.status === 'pending_approval';
+        try {
+            const submission = submissionMap[t.id];
+            return submission?.status === 'pending_approval';
+        } catch (error) {
+            console.error('Error filtering pending tasks:', error);
+            return false;
+        }
     });
 
     const completedTasks = tasks.filter(t => {
-        const submission = gameData.userTasks?.[t.id];
-        return submission?.status === 'approved';
+        try {
+            const submission = submissionMap[t.id];
+            return submission?.status === 'approved';
+        } catch (error) {
+            console.error('Error filtering completed tasks:', error);
+            return false;
+        }
     });
     
     return (
@@ -394,7 +458,11 @@ const TasksPage = () => {
                     </h2>
                     <div className="space-y-3">
                         {availableTasks.map(task => (
-                            <TaskItem key={task.id} task={task} />
+                            <TaskItem 
+                                key={task.id} 
+                                task={task} 
+                                userSubmission={submissionMap[task.id]} 
+                            />
                         ))}
                     </div>
                 </div>
@@ -409,7 +477,11 @@ const TasksPage = () => {
                     </h2>
                     <div className="space-y-3">
                         {pendingTasks.map(task => (
-                            <TaskItem key={task.id} task={task} />
+                            <TaskItem 
+                                key={task.id} 
+                                task={task} 
+                                userSubmission={submissionMap[task.id]} 
+                            />
                         ))}
                     </div>
                 </div>
@@ -424,7 +496,11 @@ const TasksPage = () => {
                     </h2>
                     <div className="space-y-3">
                         {completedTasks.map(task => (
-                            <TaskItem key={task.id} task={task} />
+                            <TaskItem 
+                                key={task.id} 
+                                task={task} 
+                                userSubmission={submissionMap[task.id]} 
+                            />
                         ))}
                     </div>
                 </div>
