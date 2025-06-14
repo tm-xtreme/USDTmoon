@@ -206,7 +206,7 @@ const WithdrawSheet = ({ open, onOpenChange }) => {
 
 const HomePage = () => {
     const { user } = useTelegram();
-    const { data, isInitialized, claimStorage } = useGameData();
+    const { data, isInitialized } = useGameData();
     const { toast } = useToast();
     const navigate = useNavigate();
     const [isWithdrawSheetOpen, setIsWithdrawSheetOpen] = useState(false);
@@ -219,7 +219,9 @@ const HomePage = () => {
             if (data?.id) {
                 try {
                     setTransactionsLoading(true);
+                    console.log('Loading transactions for user:', data.id); // Debug log
                     const userTransactions = await getUserTransactions(data.id);
+                    console.log('Loaded transactions:', userTransactions); // Debug log
                     setTransactions(userTransactions || []);
                 } catch (error) {
                     console.error('Error loading transactions:', error);
@@ -230,44 +232,28 @@ const HomePage = () => {
             }
         };
 
-        loadTransactions();
-    }, [data?.id]);
-
-    // Handle claim action
-    const handleClaim = async () => {
-        if (!isStorageFull) {
-            toast({
-                title: "Storage Not Full",
-                description: "Wait for storage to fill up before claiming.",
-                variant: "destructive"
-            });
-            return;
+        if (isInitialized && data?.id) {
+            loadTransactions();
         }
+    }, [data?.id, isInitialized]);
 
-        try {
-            const result = await claimStorage();
-            if (result.success) {
-                toast({
-                    title: "Claim Successful!",
-                    description: `+${result.amount.toFixed(8)} USDT claimed!`,
-                });
-                // Reload transactions after claim
+    // Refresh transactions function
+    const refreshTransactions = async () => {
+        if (data?.id) {
+            setTransactionsLoading(true);
+            try {
                 const userTransactions = await getUserTransactions(data.id);
                 setTransactions(userTransactions || []);
-            } else {
+            } catch (error) {
+                console.error('Error reloading transactions:', error);
                 toast({
-                    title: "Claim Failed",
-                    description: result.error || "Something went wrong.",
+                    title: "Error",
+                    description: "Failed to load transactions.",
                     variant: "destructive"
                 });
+            } finally {
+                setTransactionsLoading(false);
             }
-        } catch (error) {
-            console.error('Claim error:', error);
-            toast({
-                title: "Claim Failed",
-                description: "Something went wrong. Please try again.",
-                variant: "destructive"
-            });
         }
     };
 
@@ -298,8 +284,8 @@ const HomePage = () => {
                 </CardContent>
             </Card>
 
-            {/* Balance Card */}
-            <Card className="bg-white rounded-2xl shadow-md p-4 text-center cursor-pointer" onClick={handleClaim}>
+            {/* Balance Card - Navigate to Claim Page */}
+            <Card className="bg-white rounded-2xl shadow-md p-4 text-center cursor-pointer" onClick={() => navigate('/claim')}>
                 <CardContent className="p-0">
                     <p className="text-sm text-gray-500">Total Balance</p>
                     <p className="text-4xl font-bold my-1">{data.totalMined.toFixed(8)}</p>
@@ -336,8 +322,8 @@ const HomePage = () => {
                 
                 <TabsContent value="tokens">
                     <div className="grid grid-cols-2 gap-4 mt-2">
-                        {/* USDT Balance Card */}
-                        <Card className="bg-white rounded-2xl shadow-md p-4 cursor-pointer" onClick={handleClaim}>
+                        {/* USDT Balance Card - Navigate to Claim Page */}
+                        <Card className="bg-white rounded-2xl shadow-md p-4 cursor-pointer" onClick={() => navigate('/claim')}>
                             <CardContent className="p-0">
                                 <p className="font-bold">USDT Balance</p>
                                 <p className="text-2xl font-bold">{data.totalMined.toFixed(8)}</p>
@@ -349,8 +335,8 @@ const HomePage = () => {
                             </CardContent>
                         </Card>
                         
-                        {/* Storage Card */}
-                        <Card className="bg-white rounded-2xl shadow-md p-4 cursor-pointer" onClick={handleClaim}>
+                        {/* Storage Card - Navigate to Claim Page */}
+                        <Card className="bg-white rounded-2xl shadow-md p-4 cursor-pointer" onClick={() => navigate('/claim')}>
                             <CardContent className="p-0 flex flex-col justify-between h-full">
                                 <div>
                                     <p className="font-bold">Storage</p>
@@ -384,19 +370,10 @@ const HomePage = () => {
                                 <Button 
                                     variant="outline" 
                                     size="sm"
-                                    onClick={async () => {
-                                        setTransactionsLoading(true);
-                                        try {
-                                            const userTransactions = await getUserTransactions(data.id);
-                                            setTransactions(userTransactions || []);
-                                        } catch (error) {
-                                            console.error('Error reloading transactions:', error);
-                                        } finally {
-                                            setTransactionsLoading(false);
-                                        }
-                                    }}
+                                    onClick={refreshTransactions}
+                                    disabled={transactionsLoading}
                                 >
-                                    Refresh
+                                    {transactionsLoading ? 'Loading...' : 'Refresh'}
                                 </Button>
                             </div>
                             <TransactionHistory 
