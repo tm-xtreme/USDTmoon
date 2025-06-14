@@ -1,489 +1,484 @@
 import React, { useState, useEffect } from 'react';
-import { useAdmin } from '@/hooks/useAdmin';
+import { useToast } from '@/components/ui/use-toast';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from '@/components/ui/dialog';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { useToast } from '@/components/ui/use-toast';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { 
-    PlusCircle, 
-    Edit, 
-    Trash2, 
-    Check, 
-    X, 
-    RefreshCw, 
-    Download, 
-    History, 
+    getAllTasks, 
+    getAllUsers, 
+    getPendingWithdrawals, 
+    getPendingDeposits,
+    approveWithdrawal,
+    rejectWithdrawal,
+    approveDeposit,
+    rejectDeposit,
+    updateUserData,
+    addTransaction
+} from '@/lib/firebaseService';
+import { useGameData } from '@/hooks/useGameData';
+import { useTelegram } from '@/hooks/useTelegram';
+import { 
+    CheckCircle, 
+    XCircle, 
+    Clock, 
     Users, 
+    Gift, 
+    ArrowUpCircle, 
+    ArrowDownCircle,
+    RefreshCw,
+    Eye,
+    AlertTriangle,
     DollarSign,
-    FileText,
     TrendingUp,
-    Clock,
-    AlertCircle
+    Database
 } from 'lucide-react';
-import * as XLSX from 'xlsx';
-import { saveAs } from 'file-saver';
 
-const AdminDashboardPage = ({ onLogout }) => {
-    const { 
-        tasks, 
-        addTask, 
-        updateTask, 
-        removeTask, 
-        pendingWithdrawals,
-        pendingDeposits,
-        pendingTaskSubmissions,
-        adminStats,
-        approveWithdrawal,
-        rejectWithdrawal,
-        approveDeposit,
-        rejectDeposit,
-        approveTaskSubmission,
-        rejectTaskSubmission,
-        loadWithdrawalHistory,
-        loadDepositHistory,
-        withdrawalHistory,
-        depositHistory,
-        refreshData,
-        loading
-    } = useAdmin();
-    
+const AdminDashboardPage = () => {
     const { toast } = useToast();
-    const [isTaskDialogOpen, setIsTaskDialogOpen] = useState(false);
-    const [currentTask, setCurrentTask] = useState(null);
-    const [isWithdrawalHistoryOpen, setIsWithdrawalHistoryOpen] = useState(false);
-    const [isDepositHistoryOpen, setIsDepositHistoryOpen] = useState(false);
-    const [isRejectDialogOpen, setIsRejectDialogOpen] = useState(false);
-    const [currentSubmission, setCurrentSubmission] = useState(null);
-    const [rejectionReason, setRejectionReason] = useState('');
+    const { user } = useTelegram();
+    const { approveTask, rejectTask } = useGameData();
+    
+    // State management
+    const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
+    
+    // Data states
+    const [pendingTasks, setPendingTasks] = useState([]);
+    const [pendingWithdrawals, setPendingWithdrawals] = useState([]);
+    const [pendingDeposits, setPendingDeposits] = useState([]);
+    const [allTasks, setAllTasks] = useState([]);
+    const [allUsers, setAllUsers] = useState([]);
+    
+    // Dialog states
+    const [selectedItem, setSelectedItem] = useState(null);
+    const [dialogType, setDialogType] = useState(''); // 'task', 'withdrawal', 'deposit'
+    const [actionType, setActionType] = useState(''); // 'approve', 'reject'
+    const [rejectionReason, setRejectionReason] = useState('');
+    const [processing, setProcessing] = useState(false);
 
-    useEffect(() => {
-        loadWithdrawalHistory();
-        loadDepositHistory();
-    }, []);
+    // Check if user is admin
+    const isAdmin = user?.id?.toString() === '5063003944';
 
-    const handleRefresh = async () => {
-        setRefreshing(true);
+    // Load all data
+    const loadData = async () => {
         try {
-            await refreshData();
-            await loadWithdrawalHistory();
-            await loadDepositHistory();
-            toast({
-                title: "Success",
-                description: "Data refreshed successfully!",
-            });
+            setLoading(true);
+            
+            const [tasks, users, withdrawals, deposits] = await Promise.all([
+                getAllTasks(),
+                getAllUsers(),
+                getPendingWithdrawals(),
+                getPendingDeposits()
+            ]);
+
+            setAllTasks(tasks || []);
+            setAllUsers(users || []);
+            setPendingWithdrawals(withdrawals || []);
+            setPendingDeposits(deposits || []);
+
+            // Filter pending tasks from users
+            const pending = [];
+            if (users && tasks) {
+                users.forEach(user => {
+                    if (user.userTasks) {
+                        Object.entries(user.userTasks).forEach(([taskId, taskData]) => {
+                            if (taskData.status === 'pending_approval') {
+                                const task = tasks.find(t => t.id === taskId);
+                                if (task) {
+                                    pending.push({
+                                        ...taskData,
+                                        taskId,
+                                        userId: user.id,
+                                        username: user.username || user.first_name || 'Unknown',
+                                        taskDetails: task
+                                    });
+                                }
+                            }
+                        });
+                    }
+                });
+            }
+            setPendingTasks(pending);
+
         } catch (error) {
+            console.error('Error loading admin data:', error);
             toast({
                 title: "Error",
-                description: "Failed to refresh data.",
+                description: "Failed to load admin data. Please try again.",
                 variant: "destructive"
             });
         } finally {
-            setRefreshing(false);
+            setLoading(false);
         }
     };
 
-    const handleOpenTaskDialog = (task = null) => {
-        setCurrentTask(task);
-        setIsTaskDialogOpen(true);
+    // Refresh data
+    const refreshData = async () => {
+        setRefreshing(true);
+        await loadData();
+        setRefreshing(false);
+        toast({
+            title: "Data Refreshed",
+            description: "All data has been updated successfully."
+        });
     };
 
-    const handleSaveTask = async (e) => {
-        e.preventDefault();
-        const formData = new FormData(e.target);
-        const taskData = {
-            name: formData.get('name'),
-            description: formData.get('description'),
-            reward: parseFloat(formData.get('reward')),
-            type: formData.get('type'),
-            icon: formData.get('icon'),
-            target: formData.get('target'),
-        };
-
-        try {
-            if (currentTask) {
-                await updateTask({ ...currentTask, ...taskData });
-                toast({ title: "Task Updated Successfully!" });
-            } else {
-                await addTask(taskData);
-                toast({ title: "Task Added Successfully!" });
-            }
-            setIsTaskDialogOpen(false);
-            setCurrentTask(null);
-        } catch (error) {
-            toast({
-                title: "Error",
-                description: "Failed to save task.",
-                variant: "destructive"
-            });
+    useEffect(() => {
+        if (isAdmin) {
+            loadData();
         }
-    };
+    }, [isAdmin]);
 
-    const handleDeleteTask = async (taskId) => {
-        if (!confirm('Are you sure you want to delete this task?')) return;
+    // Handle task approval
+    const handleTaskApproval = async (approve) => {
+        if (!selectedItem) return;
         
+        setProcessing(true);
         try {
-            await removeTask(taskId);
-            toast({ title: "Task Deleted Successfully!" });
-        } catch (error) {
-            toast({
-                title: "Error",
-                description: "Failed to delete task.",
-                variant: "destructive"
-            });
-        }
-    };
-
-    const handleWithdrawalAction = async (withdrawal, approve) => {
-        try {
+            let result;
             if (approve) {
-                await approveWithdrawal(withdrawal.id);
-                toast({ 
-                    title: "Withdrawal Approved", 
-                    description: `${withdrawal.amount} USDT approved for ${withdrawal.username}` 
-                });
+                result = await approveTask(
+                    selectedItem.userId, 
+                    selectedItem.taskId, 
+                    selectedItem.taskDetails
+                );
             } else {
-                await rejectWithdrawal(withdrawal.id, withdrawal.userId, withdrawal.amount);
-                toast({ 
-                    title: "Withdrawal Rejected", 
-                    description: `${withdrawal.amount} USDT refunded to ${withdrawal.username}` 
+                result = await rejectTask(
+                    selectedItem.userId, 
+                    selectedItem.taskId, 
+                    selectedItem.taskDetails, 
+                    rejectionReason
+                );
+            }
+
+            if (result.success) {
+                toast({
+                    title: approve ? "Task Approved! ✅" : "Task Rejected! ❌",
+                    description: `Task "${selectedItem.taskDetails.name}" has been ${approve ? 'approved' : 'rejected'}.`
+                });
+                
+                // Remove from pending tasks
+                setPendingTasks(prev => prev.filter(t => 
+                    !(t.userId === selectedItem.userId && t.taskId === selectedItem.taskId)
+                ));
+                
+                setSelectedItem(null);
+                setRejectionReason('');
+            } else {
+                toast({
+                    title: "Error",
+                    description: result.reason || "Failed to process task.",
+                    variant: "destructive"
                 });
             }
         } catch (error) {
+            console.error('Error processing task:', error);
             toast({
                 title: "Error",
-                description: `Failed to ${approve ? 'approve' : 'reject'} withdrawal.`,
+                description: "An unexpected error occurred.",
                 variant: "destructive"
             });
+        } finally {
+            setProcessing(false);
         }
     };
 
-    const handleDepositAction = async (deposit, approve) => {
+    // Handle withdrawal approval/rejection
+    const handleWithdrawalAction = async (approve) => {
+        if (!selectedItem) return;
+        
+        setProcessing(true);
         try {
+            let result;
             if (approve) {
-                await approveDeposit(deposit.id, deposit.userId, deposit.amount);
-                toast({ 
-                    title: "Deposit Approved", 
-                    description: `${deposit.amount} USDT credited to ${deposit.username}` 
-                });
+                result = await approveWithdrawal(selectedItem.id);
             } else {
-                await rejectDeposit(deposit.id);
-                toast({ 
-                    title: "Deposit Rejected", 
-                    description: `Deposit rejected for ${deposit.username}` 
+                result = await rejectWithdrawal(selectedItem.id, rejectionReason);
+            }
+
+            if (result.success) {
+                toast({
+                    title: approve ? "Withdrawal Approved! ✅" : "Withdrawal Rejected! ❌",
+                    description: `Withdrawal of ${selectedItem.amount} USDT has been ${approve ? 'approved' : 'rejected'}.`
+                });
+                
+                // Remove from pending withdrawals
+                setPendingWithdrawals(prev => prev.filter(w => w.id !== selectedItem.id));
+                
+                setSelectedItem(null);
+                setRejectionReason('');
+            } else {
+                toast({
+                    title: "Error",
+                    description: result.reason || "Failed to process withdrawal.",
+                    variant: "destructive"
                 });
             }
         } catch (error) {
+            console.error('Error processing withdrawal:', error);
             toast({
                 title: "Error",
-                description: `Failed to ${approve ? 'approve' : 'reject'} deposit.`,
+                description: "An unexpected error occurred.",
                 variant: "destructive"
             });
+        } finally {
+            setProcessing(false);
         }
     };
 
-    const handleTaskSubmissionApprove = async (submission) => {
+    // Handle deposit approval/rejection
+    const handleDepositAction = async (approve) => {
+        if (!selectedItem) return;
+        
+        setProcessing(true);
         try {
-            await approveTaskSubmission(submission.id, submission.userId, submission.taskReward);
-            toast({ 
-                title: "Task Approved", 
-                description: `${submission.taskReward} USDT rewarded to ${submission.username || submission.firstName}` 
-            });
+            let result;
+            if (approve) {
+                result = await approveDeposit(selectedItem.id);
+            } else {
+                result = await rejectDeposit(selectedItem.id, rejectionReason);
+            }
+
+            if (result.success) {
+                toast({
+                    title: approve ? "Deposit Approved! ✅" : "Deposit Rejected! ❌",
+                    description: `Deposit of ${selectedItem.amount} USDT has been ${approve ? 'approved' : 'rejected'}.`
+                });
+                
+                // Remove from pending deposits
+                setPendingDeposits(prev => prev.filter(d => d.id !== selectedItem.id));
+                
+                setSelectedItem(null);
+                setRejectionReason('');
+            } else {
+                toast({
+                    title: "Error",
+                    description: result.reason || "Failed to process deposit.",
+                    variant: "destructive"
+                });
+            }
         } catch (error) {
+            console.error('Error processing deposit:', error);
             toast({
                 title: "Error",
-                description: "Failed to approve task submission.",
+                description: "An unexpected error occurred.",
                 variant: "destructive"
             });
+        } finally {
+            setProcessing(false);
         }
     };
 
-    const handleTaskSubmissionReject = (submission) => {
-        setCurrentSubmission(submission);
+    // Open dialog for actions
+    const openDialog = (item, type, action) => {
+        setSelectedItem(item);
+        setDialogType(type);
+        setActionType(action);
         setRejectionReason('');
-        setIsRejectDialogOpen(true);
     };
 
-    const confirmTaskRejection = async () => {
-        try {
-            await rejectTaskSubmission(currentSubmission.id, rejectionReason);
-            toast({ 
-                title: "Task Rejected", 
-                description: `Task rejected for ${currentSubmission.username || currentSubmission.firstName}` 
-            });
-            setIsRejectDialogOpen(false);
-            setCurrentSubmission(null);
-            setRejectionReason('');
-        } catch (error) {
-            toast({
-                title: "Error",
-                description: "Failed to reject task submission.",
-                variant: "destructive"
-            });
-        }
+    // Close dialog
+    const closeDialog = () => {
+        setSelectedItem(null);
+        setDialogType('');
+        setActionType('');
+        setRejectionReason('');
     };
 
-    const handleDownloadHistory = (data, type) => {
-        try {
-            const formattedData = data.map(item => ({
-                ID: item.id,
-                Username: item.username,
-                'User ID': item.userId,
-                Amount: item.amount,
-                Status: item.status,
-                Address: item.address || 'N/A',
-                'Transaction Hash': item.transactionHash || 'N/A',
-                'Created At': item.createdAt?.toDate ? item.createdAt.toDate().toLocaleString() : 'N/A',
-                'Updated At': item.updatedAt?.toDate ? item.updatedAt.toDate().toLocaleString() : 'N/A'
-            }));
-
-            const worksheet = XLSX.utils.json_to_sheet(formattedData);
-            const workbook = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(workbook, worksheet, type);
-            const excelBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
-            const blob = new Blob([excelBuffer], { type: 'application/octet-stream' });
-            saveAs(blob, `${type}_history_${new Date().toISOString().split('T')[0]}.xlsx`);
-            
-            toast({
-                title: "Success",
-                description: `${type} history downloaded successfully!`,
-            });
-        } catch (error) {
-            toast({
-                title: "Error",
-                description: "Failed to download history.",
-                variant: "destructive"
-            });
-        }
-    };
-
+    // Format date
     const formatDate = (timestamp) => {
-        if (!timestamp) return 'N/A';
-        if (timestamp.toDate) {
-            return timestamp.toDate().toLocaleString();
+        try {
+            let date;
+            if (timestamp?.toDate) {
+                date = timestamp.toDate();
+            } else if (timestamp?.seconds) {
+                date = new Date(timestamp.seconds * 1000);
+            } else {
+                date = new Date(timestamp);
+            }
+            return date.toLocaleString();
+        } catch {
+            return 'Unknown date';
         }
-        return new Date(timestamp).toLocaleString();
     };
+
+    // Calculate statistics
+    const stats = {
+        totalUsers: allUsers.length,
+        totalTasks: allTasks.length,
+        pendingTasksCount: pendingTasks.length,
+        pendingWithdrawalsCount: pendingWithdrawals.length,
+        pendingDepositsCount: pendingDeposits.length,
+        totalWithdrawalAmount: pendingWithdrawals.reduce((sum, w) => sum + parseFloat(w.amount || 0), 0),
+        totalDepositAmount: pendingDeposits.reduce((sum, d) => sum + parseFloat(d.amount || 0), 0)
+    };
+
+    if (!isAdmin) {
+        return (
+            <div className="p-4 text-center bg-gradient-to-b from-yellow-50 to-orange-50 min-h-screen">
+                <div className="max-w-md mx-auto mt-20">
+                    <AlertTriangle className="h-16 w-16 text-red-500 mx-auto mb-4" />
+                    <h1 className="text-2xl font-bold text-red-600 mb-2">Access Denied</h1>
+                    <p className="text-gray-600">You don't have permission to access the admin dashboard.</p>
+                </div>
+            </div>
+        );
+    }
+
+    if (loading) {
+        return (
+            <div className="p-4 text-center bg-gradient-to-b from-yellow-50 to-orange-50 min-h-screen">
+                <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-brand-yellow mx-auto mt-20"></div>
+                <p className="mt-4 text-brand-text">Loading admin dashboard...</p>
+            </div>
+        );
+    }
 
     return (
-        <div className="p-6 bg-gray-50 min-h-screen">
+        <div className="p-4 space-y-6 bg-gradient-to-b from-yellow-50 to-orange-50 min-h-screen">
             {/* Header */}
-            <Card className="mb-6">
-                <CardHeader className="flex flex-row items-center justify-between">
-                    <div>
-                        <CardTitle className="text-2xl">Admin Dashboard</CardTitle>
-                        <CardDescription>Manage tasks, users, and transactions for MOONUSDT</CardDescription>
-                    </div>
-                    <div className="flex space-x-2">
-                        <Button 
-                            variant="outline" 
-                            onClick={handleRefresh}
-                            disabled={refreshing}
-                        >
-                            <RefreshCw className={`mr-2 h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
-                            Refresh
-                        </Button>
-                        <Button onClick={onLogout} variant="destructive">
-                            Logout
-                        </Button>
-                    </div>
-                </CardHeader>
-            </Card>
+            <div className="flex items-center justify-between">
+                <div>
+                    <h1 className="text-3xl font-bold text-brand-text">Admin Dashboard</h1>
+                    <p className="text-gray-600">Manage tasks, withdrawals, and deposits</p>
+                </div>
+                <Button 
+                    onClick={refreshData} 
+                    disabled={refreshing}
+                    className="bg-brand-yellow text-black font-bold hover:bg-yellow-400"
+                >
+                    <RefreshCw className={`h-4 w-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
+                    {refreshing ? 'Refreshing...' : 'Refresh'}
+                </Button>
+            </div>
 
-            {/* Stats Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
-                <Card>
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">Total Users</CardTitle>
-                        <Users className="h-4 w-4 text-muted-foreground" />
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-2xl font-bold">{adminStats.totalUsers || 0}</div>
+            {/* Statistics Cards */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <Card className="bg-white border border-gray-100">
+                    <CardContent className="p-4 text-center">
+                        <Users className="h-8 w-8 text-blue-500 mx-auto mb-2" />
+                        <p className="text-2xl font-bold">{stats.totalUsers}</p>
+                        <p className="text-sm text-gray-500">Total Users</p>
                     </CardContent>
                 </Card>
-                <Card>
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">Total Tasks</CardTitle>
-                        <FileText className="h-4 w-4 text-muted-foreground" />
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-2xl font-bold">{adminStats.totalTasks || 0}</div>
+                
+                <Card className="bg-white border border-gray-100">
+                    <CardContent className="p-4 text-center">
+                        <Gift className="h-8 w-8 text-green-500 mx-auto mb-2" />
+                        <p className="text-2xl font-bold">{stats.totalTasks}</p>
+                        <p className="text-sm text-gray-500">Total Tasks</p>
                     </CardContent>
                 </Card>
-                <Card>
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">Pending Withdrawals</CardTitle>
-                        <TrendingUp className="h-4 w-4 text-red-500" />
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-2xl font-bold text-red-600">{adminStats.pendingWithdrawals || 0}</div>
+                
+                <Card className="bg-white border border-gray-100">
+                    <CardContent className="p-4 text-center">
+                        <ArrowUpCircle className="h-8 w-8 text-red-500 mx-auto mb-2" />
+                        <p className="text-2xl font-bold">{stats.totalWithdrawalAmount.toFixed(4)}</p>
+                        <p className="text-sm text-gray-500">Pending Withdrawals</p>
                     </CardContent>
                 </Card>
-                <Card>
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">Pending Deposits</CardTitle>
-                        <DollarSign className="h-4 w-4 text-green-500" />
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-2xl font-bold text-green-600">{adminStats.pendingDeposits || 0}</div>
-                    </CardContent>
-                </Card>
-                <Card>
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">Pending Tasks</CardTitle>
-                        <Clock className="h-4 w-4 text-orange-500" />
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-2xl font-bold text-orange-600">{adminStats.pendingTasks || 0}</div>
+                
+                <Card className="bg-white border border-gray-100">
+                    <CardContent className="p-4 text-center">
+                        <ArrowDownCircle className="h-8 w-8 text-green-500 mx-auto mb-2" />
+                        <p className="text-2xl font-bold">{stats.totalDepositAmount.toFixed(4)}</p>
+                        <p className="text-sm text-gray-500">Pending Deposits</p>
                     </CardContent>
                 </Card>
             </div>
 
             {/* Main Content Tabs */}
-            <Tabs defaultValue="tasks" className="space-y-4">
-                <TabsList>
-                    <TabsTrigger value="tasks">Task Management</TabsTrigger>
-                    <TabsTrigger value="pending-tasks">
-                        Pending Tasks
-                        {pendingTaskSubmissions && pendingTaskSubmissions.length > 0 && (
-                            <span className="ml-2 bg-orange-500 text-white text-xs px-2 py-1 rounded-full">
-                                {pendingTaskSubmissions.length}
-                            </span>
+            <Tabs defaultValue="tasks" className="w-full">
+                <TabsList className="grid w-full grid-cols-3 bg-gray-200">
+                    <TabsTrigger value="tasks" className="relative">
+                        Tasks
+                        {stats.pendingTasksCount > 0 && (
+                            <Badge className="ml-2 bg-red-500 text-white text-xs">
+                                {stats.pendingTasksCount}
+                            </Badge>
                         )}
                     </TabsTrigger>
-                    <TabsTrigger value="withdrawals">Withdrawals</TabsTrigger>
-                    <TabsTrigger value="deposits">Deposits</TabsTrigger>
-                    <TabsTrigger value="history">History</TabsTrigger>
+                    <TabsTrigger value="withdrawals" className="relative">
+                        Withdrawals
+                        {stats.pendingWithdrawalsCount > 0 && (
+                            <Badge className="ml-2 bg-red-500 text-white text-xs">
+                                {stats.pendingWithdrawalsCount}
+                            </Badge>
+                        )}
+                    </TabsTrigger>
+                    <TabsTrigger value="deposits" className="relative">
+                        Deposits
+                        {stats.pendingDepositsCount > 0 && (
+                            <Badge className="ml-2 bg-red-500 text-white text-xs">
+                                {stats.pendingDepositsCount}
+                            </Badge>
+                        )}
+                    </TabsTrigger>
                 </TabsList>
 
-                {/* Tasks Tab */}
-                <TabsContent value="tasks">
-                    <Card>
-                        <CardHeader className="flex flex-row items-center justify-between">
-                            <CardTitle>Task Management</CardTitle>
-                            <Button onClick={() => handleOpenTaskDialog()}>
-                                <PlusCircle className="mr-2 h-4 w-4" /> Add Task
-                            </Button>
-                        </CardHeader>
-                        <CardContent>
-                            <div className="space-y-4">
-                                {tasks && tasks.map(task => (
-                                    <div key={task.id} className="flex items-center justify-between p-4 bg-white rounded-lg border shadow-sm">
-                                        <div className="flex-1">
-                                            <div className="flex items-center space-x-2">
-                                                <h3 className="font-semibold">{task.name}</h3>
-                                                <span className="text-xs px-2 py-1 bg-gray-100 rounded-full">
-                                                    {task.type}
-                                                </span>
-                                            </div>
-                                            <p className="text-sm text-green-600 font-medium">{task.reward} USDT</p>
-                                            <p className="text-sm text-gray-600">{task.description}</p>
-                                            <p className="text-xs text-gray-400">Target: {task.target}</p>
-                                        </div>
-                                        <div className="flex items-center space-x-2">
-                                            <Button 
-                                                variant="ghost" 
-                                                size="icon" 
-                                                onClick={() => handleOpenTaskDialog(task)}
-                                            >
-                                                <Edit className="h-4 w-4" />
-                                            </Button>
-                                            <Button 
-                                                variant="ghost" 
-                                                size="icon" 
-                                                onClick={() => handleDeleteTask(task.id)}
-                                                className="text-red-500 hover:text-red-700"
-                                            >
-                                                <Trash2 className="h-4 w-4" />
-                                            </Button>
-                                        </div>
-                                    </div>
-                                ))}
-                                {(!tasks || tasks.length === 0) && (
-                                    <div className="text-center py-8 text-gray-500">
-                                        <FileText className="mx-auto h-12 w-12 text-gray-300 mb-4" />
-                                        <p>No tasks available. Create your first task!</p>
-                                    </div>
-                                )}
-                            </div>
-                        </CardContent>
-                    </Card>
-                </TabsContent>
-
                 {/* Pending Tasks Tab */}
-                <TabsContent value="pending-tasks">
-                    <Card>
+                <TabsContent value="tasks">
+                    <Card className="bg-white border border-gray-100">
                         <CardHeader>
-                            <CardTitle className="flex items-center space-x-2">
-                                <Clock className="h-5 w-5 text-orange-500" />
-                                <span>Pending Task Submissions</span>
+                            <CardTitle className="flex items-center">
+                                <Clock className="h-5 w-5 mr-2 text-orange-500" />
+                                Pending Tasks ({stats.pendingTasksCount})
                             </CardTitle>
-                            <CardDescription>Review and approve/reject manual task submissions from users</CardDescription>
                         </CardHeader>
                         <CardContent>
-                            {(!pendingTaskSubmissions || pendingTaskSubmissions.length === 0) ? (
+                            {pendingTasks.length === 0 ? (
                                 <div className="text-center py-8 text-gray-500">
-                                    <AlertCircle className="mx-auto h-12 w-12 text-gray-300 mb-4" />
-                                    <p>No pending task submissions.</p>
-                                    <p className="text-sm">All tasks are up to date!</p>
+                                    <Gift className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+                                    <p>No pending tasks to review</p>
                                 </div>
                             ) : (
                                 <div className="space-y-4">
-                                    {pendingTaskSubmissions.map(submission => (
-                                        <div key={submission.id} className="p-4 bg-white rounded-lg border shadow-sm">
-                                            <div className="flex justify-between items-start">
-                                                <div className="flex-1 space-y-2">
-                                                    {/* User Info */}
-                                                    <div className="flex items-center space-x-2">
-                                                        <div className="p-2 bg-blue-100 rounded-full">
-                                                            <Users className="h-4 w-4 text-blue-600" />
+                                    {pendingTasks.map((task, index) => (
+                                        <div key={`${task.userId}-${task.taskId}`} className="border border-gray-200 rounded-lg p-4">
+                                            <div className="flex items-start justify-between">
+                                                <div className="flex-1">
+                                                    <div className="flex items-center space-x-2 mb-2">
+                                                        <h3 className="font-bold text-lg">{task.taskDetails.name}</h3>
+                                                        <Badge variant="outline" className="text-xs">
+                                                            {task.taskDetails.type === 'auto' ? 'Auto' : 'Manual'}
+                                                        </Badge>
+                                                    </div>
+                                                    <p className="text-sm text-gray-600 mb-2">{task.taskDetails.description}</p>
+                                                    <div className="grid grid-cols-2 gap-4 text-sm">
+                                                        <div>
+                                                            <span className="font-semibold">User:</span> {task.username}
                                                         </div>
                                                         <div>
-                                                            <p className="font-medium">
-                                                                {submission.username || `${submission.firstName} ${submission.lastName}`.trim() || 'Unknown User'}
-                                                            </p>
-                                                            <p className="text-sm text-gray-500">User ID: {submission.userId}</p>
+                                                            <span className="font-semibold">Reward:</span> {task.taskDetails.reward} USDT
                                                         </div>
-                                                    </div>
-
-                                                    {/* Task Info */}
-                                                    <div className="bg-gray-50 p-3 rounded-lg">
-                                                        <div className="flex items-center justify-between mb-2">
-                                                            <h4 className="font-semibold text-lg">{submission.taskName}</h4>
-                                                            <span className="text-lg font-bold text-green-600">
-                                                                +{submission.taskReward} USDT
-                                                            </span>
+                                                        <div>
+                                                            <span className="font-semibold">Target:</span> {task.taskDetails.target}
                                                         </div>
-                                                        <p className="text-sm text-gray-600 mb-2">{submission.taskDescription}</p>
-                                                        <div className="flex items-center space-x-4 text-xs text-gray-500">
-                                                            <span>Target: {submission.taskTarget}</span>
-                                                            <span>Type: {submission.taskType}</span>
-                                                            <span>Submitted: {formatDate(submission.submittedAt)}</span>
+                                                        <div>
+                                                            <span className="font-semibold">Submitted:</span> {formatDate(task.submittedAt)}
                                                         </div>
                                                     </div>
                                                 </div>
-
-                                                {/* Action Buttons */}
                                                 <div className="flex flex-col space-y-2 ml-4">
-                                                    <Button 
-                                                        size="sm" 
-                                                        className="bg-green-600 hover:bg-green-700 text-white" 
-                                                        onClick={() => handleTaskSubmissionApprove(submission)}
+                                                    <Button
+                                                        size="sm"
+                                                        className="bg-green-500 text-white hover:bg-green-600"
+                                                        onClick={() => openDialog(task, 'task', 'approve')}
                                                     >
-                                                        <Check className="h-4 w-4 mr-1"/>
+                                                        <CheckCircle className="h-4 w-4 mr-1" />
                                                         Approve
                                                     </Button>
-                                                    <Button 
-                                                        size="sm" 
-                                                        variant="outline" 
-                                                        className="text-red-600 border-red-600 hover:bg-red-50" 
-                                                        onClick={() => handleTaskSubmissionReject(submission)}
+                                                    <Button
+                                                        size="sm"
+                                                        variant="destructive"
+                                                        onClick={() => openDialog(task, 'task', 'reject')}
                                                     >
-                                                        <X className="h-4 w-4 mr-1"/>
+                                                        <XCircle className="h-4 w-4 mr-1" />
                                                         Reject
                                                     </Button>
                                                 </div>
@@ -496,48 +491,67 @@ const AdminDashboardPage = ({ onLogout }) => {
                     </Card>
                 </TabsContent>
 
-                {/* Withdrawals Tab */}
+                {/* Pending Withdrawals Tab */}
                 <TabsContent value="withdrawals">
-                    <Card>
+                    <Card className="bg-white border border-gray-100">
                         <CardHeader>
-                            <CardTitle>Pending Withdrawals</CardTitle>
+                            <CardTitle className="flex items-center">
+                                <ArrowUpCircle className="h-5 w-5 mr-2 text-red-500" />
+                                Pending Withdrawals ({stats.pendingWithdrawalsCount})
+                            </CardTitle>
                         </CardHeader>
                         <CardContent>
-                            {(!pendingWithdrawals || pendingWithdrawals.length === 0) ? (
+                            {pendingWithdrawals.length === 0 ? (
                                 <div className="text-center py-8 text-gray-500">
-                                    <DollarSign className="mx-auto h-12 w-12 text-gray-300 mb-4" />
-                                    <p>No pending withdrawals.</p>
+                                    <ArrowUpCircle className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+                                    <p>No pending withdrawals to review</p>
                                 </div>
                             ) : (
                                 <div className="space-y-4">
-                                    {pendingWithdrawals.map(withdrawal => (
-                                        <div key={withdrawal.id} className="p-4 bg-white rounded-lg border shadow-sm">
-                                            <div className="flex justify-between items-start">
+                                    {pendingWithdrawals.map((withdrawal) => (
+                                        <div key={withdrawal.id} className="border border-gray-200 rounded-lg p-4">
+                                            <div className="flex items-start justify-between">
                                                 <div className="flex-1">
-                                                    <p className="font-medium">User: {withdrawal.username} ({withdrawal.userId})</p>
-                                                    <p className="text-lg font-bold text-red-600">{withdrawal.amount} USDT</p>
-                                                    <p className="text-sm text-gray-600">Address: {withdrawal.address}</p>
-                                                    <p className="text-xs text-gray-400">
-                                                        {formatDate(withdrawal.createdAt)}
-                                                    </p>
+                                                    <div className="flex items-center space-x-2 mb-2">
+                                                        <h3 className="font-bold text-lg">{withdrawal.amount} USDT</h3>
+                                                        <Badge className="bg-red-100 text-red-800">
+                                                            {withdrawal.status || 'Pending'}
+                                                        </Badge>
+                                                    </div>
+                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                                                        <div>
+                                                            <span className="font-semibold">User:</span> {withdrawal.username || 'Unknown'}
+                                                        </div>
+                                                        <div>
+                                                            <span className="font-semibold">User ID:</span> {withdrawal.userId}
+                                                        </div>
+                                                        <div className="md:col-span-2">
+                                                            <span className="font-semibold">Address:</span> 
+                                                            <span className="font-mono text-xs ml-2 break-all">{withdrawal.address}</span>
+                                                        </div>
+                                                        <div>
+                                                            <span className="font-semibold">Requested:</span> {formatDate(withdrawal.createdAt)}
+                                                        </div>
+                                                        <div>
+                                                            <span className="font-semibold">Network:</span> BEP20 (BSC)
+                                                        </div>
+                                                    </div>
                                                 </div>
-                                                <div className="flex space-x-2">
-                                                    <Button 
-                                                        size="sm" 
-                                                        variant="outline" 
-                                                        className="text-green-600 border-green-600 hover:bg-green-50" 
-                                                        onClick={() => handleWithdrawalAction(withdrawal, true)}
+                                                <div className="flex flex-col space-y-2 ml-4">
+                                                    <Button
+                                                        size="sm"
+                                                        className="bg-green-500 text-white hover:bg-green-600"
+                                                        onClick={() => openDialog(withdrawal, 'withdrawal', 'approve')}
                                                     >
-                                                        <Check className="h-4 w-4 mr-1"/>
+                                                        <CheckCircle className="h-4 w-4 mr-1" />
                                                         Approve
                                                     </Button>
-                                                    <Button 
-                                                        size="sm" 
-                                                        variant="outline" 
-                                                        className="text-red-600 border-red-600 hover:bg-red-50" 
-                                                        onClick={() => handleWithdrawalAction(withdrawal, false)}
+                                                    <Button
+                                                        size="sm"
+                                                        variant="destructive"
+                                                        onClick={() => openDialog(withdrawal, 'withdrawal', 'reject')}
                                                     >
-                                                        <X className="h-4 w-4 mr-1"/>
+                                                        <XCircle className="h-4 w-4 mr-1" />
                                                         Reject
                                                     </Button>
                                                 </div>
@@ -550,48 +564,67 @@ const AdminDashboardPage = ({ onLogout }) => {
                     </Card>
                 </TabsContent>
 
-                {/* Deposits Tab */}
+                {/* Pending Deposits Tab */}
                 <TabsContent value="deposits">
-                    <Card>
+                    <Card className="bg-white border border-gray-100">
                         <CardHeader>
-                            <CardTitle>Pending Deposits</CardTitle>
+                            <CardTitle className="flex items-center">
+                                <ArrowDownCircle className="h-5 w-5 mr-2 text-green-500" />
+                                Pending Deposits ({stats.pendingDepositsCount})
+                            </CardTitle>
                         </CardHeader>
                         <CardContent>
-                            {(!pendingDeposits || pendingDeposits.length === 0) ? (
+                            {pendingDeposits.length === 0 ? (
                                 <div className="text-center py-8 text-gray-500">
-                                    <TrendingUp className="mx-auto h-12 w-12 text-gray-300 mb-4" />
-                                    <p>No pending deposits.</p>
+                                    <ArrowDownCircle className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+                                    <p>No pending deposits to review</p>
                                 </div>
                             ) : (
                                 <div className="space-y-4">
-                                    {pendingDeposits.map(deposit => (
-                                        <div key={deposit.id} className="p-4 bg-white rounded-lg border shadow-sm">
-                                            <div className="flex justify-between items-start">
+                                    {pendingDeposits.map((deposit) => (
+                                        <div key={deposit.id} className="border border-gray-200 rounded-lg p-4">
+                                            <div className="flex items-start justify-between">
                                                 <div className="flex-1">
-                                                    <p className="font-medium">User: {deposit.username} ({deposit.userId})</p>
-                                                    <p className="text-lg font-bold text-green-600">{deposit.amount} USDT</p>
-                                                    <p className="text-sm text-gray-600">TxHash: {deposit.transactionHash}</p>
-                                                    <p className="text-xs text-gray-400">
-                                                        {formatDate(deposit.createdAt)}
-                                                    </p>
+                                                    <div className="flex items-center space-x-2 mb-2">
+                                                        <h3 className="font-bold text-lg">{deposit.amount} USDT</h3>
+                                                        <Badge className="bg-green-100 text-green-800">
+                                                            {deposit.status || 'Pending'}
+                                                        </Badge>
+                                                    </div>
+                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                                                        <div>
+                                                            <span className="font-semibold">User:</span> {deposit.username || 'Unknown'}
+                                                        </div>
+                                                        <div>
+                                                            <span className="font-semibold">User ID:</span> {deposit.userId}
+                                                        </div>
+                                                        <div className="md:col-span-2">
+                                                            <span className="font-semibold">Transaction Hash:</span> 
+                                                            <span className="font-mono text-xs ml-2 break-all">{deposit.transactionHash}</span>
+                                                        </div>
+                                                        <div>
+                                                            <span className="font-semibold">Submitted:</span> {formatDate(deposit.createdAt)}
+                                                        </div>
+                                                        <div>
+                                                            <span className="font-semibold">Network:</span> BEP20 (BSC)
+                                                        </div>
+                                                    </div>
                                                 </div>
-                                                <div className="flex space-x-2">
-                                                    <Button 
-                                                        size="sm" 
-                                                        variant="outline" 
-                                                        className="text-green-600 border-green-600 hover:bg-green-50" 
-                                                        onClick={() => handleDepositAction(deposit, true)}
+                                                <div className="flex flex-col space-y-2 ml-4">
+                                                    <Button
+                                                        size="sm"
+                                                        className="bg-green-500 text-white hover:bg-green-600"
+                                                        onClick={() => openDialog(deposit, 'deposit', 'approve')}
                                                     >
-                                                        <Check className="h-4 w-4 mr-1"/>
+                                                        <CheckCircle className="h-4 w-4 mr-1" />
                                                         Approve
                                                     </Button>
-                                                    <Button 
-                                                        size="sm" 
-                                                        variant="outline" 
-                                                        className="text-red-600 border-red-600 hover:bg-red-50" 
-                                                        onClick={() => handleDepositAction(deposit, false)}
+                                                    <Button
+                                                        size="sm"
+                                                        variant="destructive"
+                                                        onClick={() => openDialog(deposit, 'deposit', 'reject')}
                                                     >
-                                                        <X className="h-4 w-4 mr-1"/>
+                                                        <XCircle className="h-4 w-4 mr-1" />
                                                         Reject
                                                     </Button>
                                                 </div>
@@ -602,309 +635,110 @@ const AdminDashboardPage = ({ onLogout }) => {
                             )}
                         </CardContent>
                     </Card>
-                </TabsContent>
-
-                {/* History Tab */}
-                <TabsContent value="history">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <Card>
-                            <CardHeader className="flex flex-row items-center justify-between">
-                                <CardTitle>Withdrawal History</CardTitle>
-                                <Button 
-                                    variant="outline" 
-                                    size="sm"
-                                    onClick={() => setIsWithdrawalHistoryOpen(true)}
-                                >
-                                    <History className="h-4 w-4 mr-2" />
-                                    View All
-                                </Button>
-                            </CardHeader>
-                            <CardContent>
-                                <div className="space-y-2">
-                                    {withdrawalHistory && withdrawalHistory.slice(0, 5).map(withdrawal => (
-                                        <div key={withdrawal.id} className="p-3 bg-gray-50 rounded-lg">
-                                            <div className="flex justify-between items-center">
-                                                <div>
-                                                    <p className="font-medium text-sm">{withdrawal.username}</p>
-                                                    <p className="text-xs text-gray-500">{withdrawal.amount} USDT</p>
-                                                </div>
-                                                <span className={`text-xs px-2 py-1 rounded-full ${
-                                                    withdrawal.status === 'approved' ? 'bg-green-100 text-green-800' :
-                                                    withdrawal.status === 'rejected' ? 'bg-red-100 text-red-800' :
-                                                    'bg-yellow-100 text-yellow-800'
-                                                }`}>
-                                                    {withdrawal.status}
-                                                </span>
-                                            </div>
-                                        </div>
-                                    ))}
-                                    {(!withdrawalHistory || withdrawalHistory.length === 0) && (
-                                        <p className="text-gray-500 text-center py-4">No withdrawal history</p>
-                                    )}
-                                </div>
-                            </CardContent>
-                        </Card>
-
-                        <Card>
-                            <CardHeader className="flex flex-row items-center justify-between">
-                                <CardTitle>Deposit History</CardTitle>
-                                <Button 
-                                    variant="outline" 
-                                    size="sm"
-                                    onClick={() => setIsDepositHistoryOpen(true)}
-                                >
-                                    <History className="h-4 w-4 mr-2" />
-                                    View All
-                                </Button>
-                            </CardHeader>
-                            <CardContent>
-                                <div className="space-y-2">
-                                    {depositHistory && depositHistory.slice(0, 5).map(deposit => (
-                                        <div key={deposit.id} className="p-3 bg-gray-50 rounded-lg">
-                                            <div className="flex justify-between items-center">
-                                                <div>
-                                                    <p className="font-medium text-sm">{deposit.username}</p>
-                                                    <p className="text-xs text-gray-500">{deposit.amount} USDT</p>
-                                                </div>
-                                                <span className={`text-xs px-2 py-1 rounded-full ${
-                                                    deposit.status === 'approved' ? 'bg-green-100 text-green-800' :
-                                                    deposit.status === 'rejected' ? 'bg-red-100 text-red-800' :
-                                                    'bg-yellow-100 text-yellow-800'
-                                                }`}>
-                                                    {deposit.status}
-                                                </span>
-                                            </div>
-                                        </div>
-                                    ))}
-                                    {(!depositHistory || depositHistory.length === 0) && (
-                                        <p className="text-gray-500 text-center py-4">No deposit history</p>
-                                    )}
-                                </div>
-                            </CardContent>
-                        </Card>
-                    </div>
                 </TabsContent>
             </Tabs>
 
-            {/* Task Dialog */}
-            <Dialog open={isTaskDialogOpen} onOpenChange={setIsTaskDialogOpen}>
-                <DialogContent className="max-w-md">
+            {/* Action Dialog */}
+            <Dialog open={!!selectedItem} onOpenChange={closeDialog}>
+                <DialogContent className="bg-white">
                     <DialogHeader>
-                        <DialogTitle>{currentTask ? 'Edit Task' : 'Add New Task'}</DialogTitle>
+                        <DialogTitle>
+                            {actionType === 'approve' ? 'Approve' : 'Reject'} {' '}
+                            {dialogType === 'task' ? 'Task' : 
+                             dialogType === 'withdrawal' ? 'Withdrawal' : 'Deposit'}
+                        </DialogTitle>
                     </DialogHeader>
-                    <form onSubmit={handleSaveTask} className="space-y-4">
-                        <div className="space-y-2">
-                            <Label htmlFor="name">Task Name</Label>
-                            <Input 
-                                id="name" 
-                                name="name" 
-                                defaultValue={currentTask?.name || ''} 
-                                placeholder="Enter task name"
-                                required 
-                            />
-                        </div>
-                        <div className="space-y-2">
-                            <Label htmlFor="description">Description</Label>
-                            <Input 
-                                id="description" 
-                                name="description" 
-                                defaultValue={currentTask?.description || ''} 
-                                placeholder="Enter task description"
-                                required 
-                            />
-                        </div>
-                        <div className="space-y-2">
-                            <Label htmlFor="reward">Reward (USDT)</Label>
-                            <Input 
-                                id="reward" 
-                                name="reward" 
-                                type="number" 
-                                step="0.000001" 
-                                defaultValue={currentTask?.reward || ''} 
-                                placeholder="0.000000"
-                                required 
-                            />
-                        </div>
-                        <div className="space-y-2">
-                            <Label htmlFor="target">Target (URL or keyword)</Label>
-                            <Input 
-                                id="target" 
-                                name="target" 
-                                defaultValue={currentTask?.target || ''} 
-                                placeholder="https://example.com or keyword"
-                                required 
-                            />
-                        </div>
-                        <div className="space-y-2">
-                            <Label htmlFor="type">Task Type</Label>
-                            <select 
-                                id="type" 
-                                name="type" 
-                                defaultValue={currentTask?.type || 'manual'} 
-                                className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                            >
-                                <option value="manual">Manual Verification</option>
-                                <option value="auto">Auto Verification</option>
-                            </select>
-                        </div>
-                        <div className="space-y-2">
-                            <Label htmlFor="icon">Icon (Lucide Name)</Label>
-                            <Input 
-                                id="icon" 
-                                name="icon" 
-                                defaultValue={currentTask?.icon || 'Gift'} 
-                                placeholder="e.g., Gift, Send, Users, Star"
-                                required 
-                            />
-                        </div>
-                        <DialogFooter>
-                            <DialogClose asChild>
-                                <Button type="button" variant="secondary">Cancel</Button>
-                            </DialogClose>
-                            <Button type="submit">
-                                {currentTask ? 'Update Task' : 'Create Task'}
-                            </Button>
-                        </DialogFooter>
-                    </form>
-                </DialogContent>
-            </Dialog>
-
-            {/* Withdrawal History Dialog */}
-            <Dialog open={isWithdrawalHistoryOpen} onOpenChange={setIsWithdrawalHistoryOpen}>
-                <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
-                    <DialogHeader>
-                        <DialogTitle>Complete Withdrawal History</DialogTitle>
-                    </DialogHeader>
+                    
                     <div className="space-y-4">
-                        {withdrawalHistory && withdrawalHistory.map(withdrawal => (
-                            <div key={withdrawal.id} className="p-4 border rounded-lg">
-                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                                    <div>
-                                        <p className="font-medium">{withdrawal.username}</p>
-                                        <p className="text-sm text-gray-500">ID: {withdrawal.userId}</p>
+                        {selectedItem && (
+                            <div className="bg-gray-50 p-4 rounded-lg">
+                                <h4 className="font-semibold mb-2">Details:</h4>
+                                {dialogType === 'task' && (
+                                    <div className="space-y-1 text-sm">
+                                        <p><span className="font-medium">Task:</span> {selectedItem.taskDetails?.name}</p>
+                                        <p><span className="font-medium">User:</span> {selectedItem.username}</p>
+                                        <p><span className="font-medium">Reward:</span> {selectedItem.taskDetails?.reward} USDT</p>
+                                        <p><span className="font-medium">Type:</span> {selectedItem.taskDetails?.type}</p>
                                     </div>
-                                    <div>
-                                        <p className="font-bold">{withdrawal.amount} USDT</p>
-                                        <p className="text-xs text-gray-500">Amount</p>
+                                )}
+                                {dialogType === 'withdrawal' && (
+                                    <div className="space-y-1 text-sm">
+                                        <p><span className="font-medium">Amount:</span> {selectedItem.amount} USDT</p>
+                                        <p><span className="font-medium">User:</span> {selectedItem.username}</p>
+                                        <p><span className="font-medium">Address:</span> {selectedItem.address}</p>
                                     </div>
-                                    <div>
-                                        <span className={`px-2 py-1 rounded-full text-xs ${
-                                            withdrawal.status === 'approved' ? 'bg-green-100 text-green-800' :
-                                            withdrawal.status === 'rejected' ? 'bg-red-100 text-red-800' :
-                                            'bg-yellow-100 text-yellow-800'
-                                        }`}>
-                                            {withdrawal.status}
-                                        </span>
+                                )}
+                                {dialogType === 'deposit' && (
+                                    <div className="space-y-1 text-sm">
+                                        <p><span className="font-medium">Amount:</span> {selectedItem.amount} USDT</p>
+                                        <p><span className="font-medium">User:</span> {selectedItem.username}</p>
+                                        <p><span className="font-medium">Hash:</span> {selectedItem.transactionHash}</p>
                                     </div>
-                                    <div>
-                                        <p className="text-xs text-gray-500">
-                                            {formatDate(withdrawal.createdAt)}
-                                        </p>
-                                    </div>
-                                </div>
-                                <div className="mt-2">
-                                    <p className="text-xs text-gray-600">Address: {withdrawal.address}</p>
-                                </div>
+                                )}
                             </div>
-                        ))}
-                        {(!withdrawalHistory || withdrawalHistory.length === 0) && (
-                            <p className="text-center text-gray-500 py-8">No withdrawal history available</p>
+                        )}
+                        
+                        {actionType === 'reject' && (
+                            <div>
+                                <Label htmlFor="rejection-reason">Rejection Reason</Label>
+                                <Textarea
+                                    id="rejection-reason"
+                                    placeholder="Enter reason for rejection..."
+                                    value={rejectionReason}
+                                    onChange={(e) => setRejectionReason(e.target.value)}
+                                    className="mt-1"
+                                />
+                            </div>
+                        )}
+                        
+                        {actionType === 'approve' && (
+                            <div className="bg-green-50 p-4 rounded-lg">
+                                <p className="text-green-800 text-sm">
+                                    {dialogType === 'task' && 'This will reward the user and mark the task as completed.'}
+                                    {dialogType === 'withdrawal' && 'This will mark the withdrawal as approved. Make sure to process the actual payment.'}
+                                    {dialogType === 'deposit' && 'This will add the amount to the user\'s balance.'}
+                                </p>
+                            </div>
                         )}
                     </div>
+                    
                     <DialogFooter>
-                        <Button 
-                            onClick={() => handleDownloadHistory(withdrawalHistory, 'withdrawal')}
-                            disabled={!withdrawalHistory || withdrawalHistory.length === 0}
-                        >
-                            <Download className="h-4 w-4 mr-2" />
-                            Download Excel
+                        <Button variant="outline" onClick={closeDialog} disabled={processing}>
+                            Cancel
                         </Button>
-                        <DialogClose asChild>
-                            <Button variant="secondary">Close</Button>
-                        </DialogClose>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
-
-            {/* Deposit History Dialog */}
-            <Dialog open={isDepositHistoryOpen} onOpenChange={setIsDepositHistoryOpen}>
-                <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
-                    <DialogHeader>
-                        <DialogTitle>Complete Deposit History</DialogTitle>
-                    </DialogHeader>
-                    <div className="space-y-4">
-                        {depositHistory && depositHistory.map(deposit => (
-                            <div key={deposit.id} className="p-4 border rounded-lg">
-                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                                    <div>
-                                        <p className="font-medium">{deposit.username}</p>
-                                        <p className="text-sm text-gray-500">ID: {deposit.userId}</p>
-                                    </div>
-                                    <div>
-                                        <p className="font-bold">{deposit.amount} USDT</p>
-                                        <p className="text-xs text-gray-500">Amount</p>
-                                    </div>
-                                    <div>
-                                        <span className={`px-2 py-1 rounded-full text-xs ${
-                                            deposit.status === 'approved' ? 'bg-green-100 text-green-800' :
-                                            deposit.status === 'rejected' ? 'bg-red-100 text-red-800' :
-                                            'bg-yellow-100 text-yellow-800'
-                                        }`}>
-                                            {deposit.status}
-                                        </span>
-                                    </div>
-                                    <div>
-                                        <p className="text-xs text-gray-500">
-                                            {formatDate(deposit.createdAt)}
-                                        </p>
-                                    </div>
-                                </div>
-                                <div className="mt-2">
-                                    <p className="text-xs text-gray-600">TxHash: {deposit.transactionHash}</p>
-                                </div>
-                            </div>
-                        ))}
-                        {(!depositHistory || depositHistory.length === 0) && (
-                            <p className="text-center text-gray-500 py-8">No deposit history available</p>
-                        )}
-                    </div>
-                    <DialogFooter>
-                        <Button 
-                            onClick={() => handleDownloadHistory(depositHistory, 'deposit')}
-                            disabled={!depositHistory || depositHistory.length === 0}
+                        <Button
+                            onClick={() => {
+                                if (dialogType === 'task') {
+                                    handleTaskApproval(actionType === 'approve');
+                                } else if (dialogType === 'withdrawal') {
+                                    handleWithdrawalAction(actionType === 'approve');
+                                } else if (dialogType === 'deposit') {
+                                    handleDepositAction(actionType === 'approve');
+                                }
+                            }}
+                            disabled={processing || (actionType === 'reject' && !rejectionReason.trim())}
+                            className={actionType === 'approve' ? 'bg-green-500 hover:bg-green-600' : 'bg-red-500 hover:bg-red-600'}
                         >
-                            <Download className="h-4 w-4 mr-2" />
-                            Download Excel
-                        </Button>
-                        <DialogClose asChild>
-                            <Button variant="secondary">Close</Button>
-                        </DialogClose>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
-
-            {/* Reject Task Submission Dialog */}
-            <Dialog open={isRejectDialogOpen} onOpenChange={setIsRejectDialogOpen}>
-                <DialogContent className="max-w-md">
-                    <DialogHeader>
-                        <DialogTitle>Reject Task Submission</DialogTitle>
-                    </DialogHeader>
-                    <div className="space-y-4">
-                        <Label htmlFor="reason">Rejection Reason</Label>
-                        <Textarea 
-                            id="reason" 
-                            value={rejectionReason} 
-                            onChange={(e) => setRejectionReason(e.target.value)} 
-                            placeholder="Enter reason for rejection"
-                            required 
-                        />
-                    </div>
-                    <DialogFooter>
-                        <DialogClose asChild>
-                            <Button type="button" variant="secondary">Cancel</Button>
-                        </DialogClose>
-                        <Button type="button" onClick={confirmTaskRejection}>
-                            Reject Task
+                            {processing ? (
+                                <div className="flex items-center space-x-2">
+                                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                                    <span>Processing...</span>
+                                </div>
+                            ) : (
+                                <>
+                                    {actionType === 'approve' ? (
+                                        <>
+                                            <CheckCircle className="h-4 w-4 mr-2" />
+                                            Approve
+                                        </>
+                                    ) : (
+                                        <>
+                                            <XCircle className="h-4 w-4 mr-2" />
+                                            Reject
+                                        </>
+                                    )}
+                                </>
+                            )}
                         </Button>
                     </DialogFooter>
                 </DialogContent>
