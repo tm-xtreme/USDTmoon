@@ -349,7 +349,7 @@ const AdminDashboardPage = ({ onLogout }) => {
                     <TabsTrigger value="tasks">Task Management</TabsTrigger>
                     <TabsTrigger value="pending-tasks">
                         Pending Tasks
-                        {pendingTaskSubmissions.length > 0 && (
+                        {pendingTaskSubmissions && pendingTaskSubmissions.length > 0 && (
                             <span className="ml-2 bg-orange-500 text-white text-xs px-2 py-1 rounded-full">
                                 {pendingTaskSubmissions.length}
                             </span>
@@ -371,7 +371,7 @@ const AdminDashboardPage = ({ onLogout }) => {
                         </CardHeader>
                         <CardContent>
                             <div className="space-y-4">
-                                {tasks.map(task => (
+                                {tasks && tasks.map(task => (
                                     <div key={task.id} className="flex items-center justify-between p-4 bg-white rounded-lg border shadow-sm">
                                         <div className="flex-1">
                                             <div className="flex items-center space-x-2">
@@ -403,7 +403,7 @@ const AdminDashboardPage = ({ onLogout }) => {
                                         </div>
                                     </div>
                                 ))}
-                                {tasks.length === 0 && (
+                                {(!tasks || tasks.length === 0) && (
                                     <div className="text-center py-8 text-gray-500">
                                         <FileText className="mx-auto h-12 w-12 text-gray-300 mb-4" />
                                         <p>No tasks available. Create your first task!</p>
@@ -425,7 +425,7 @@ const AdminDashboardPage = ({ onLogout }) => {
                             <CardDescription>Review and approve/reject manual task submissions from users</CardDescription>
                         </CardHeader>
                         <CardContent>
-                            {pendingTaskSubmissions.length === 0 ? (
+                            {(!pendingTaskSubmissions || pendingTaskSubmissions.length === 0) ? (
                                 <div className="text-center py-8 text-gray-500">
                                     <AlertCircle className="mx-auto h-12 w-12 text-gray-300 mb-4" />
                                     <p>No pending task submissions.</p>
@@ -503,7 +503,7 @@ const AdminDashboardPage = ({ onLogout }) => {
                             <CardTitle>Pending Withdrawals</CardTitle>
                         </CardHeader>
                         <CardContent>
-                            {pendingWithdrawals.length === 0 ? (
+                            {(!pendingWithdrawals || pendingWithdrawals.length === 0) ? (
                                 <div className="text-center py-8 text-gray-500">
                                     <DollarSign className="mx-auto h-12 w-12 text-gray-300 mb-4" />
                                     <p>No pending withdrawals.</p>
@@ -557,7 +557,7 @@ const AdminDashboardPage = ({ onLogout }) => {
                             <CardTitle>Pending Deposits</CardTitle>
                         </CardHeader>
                         <CardContent>
-                            {pendingDeposits.length === 0 ? (
+                            {(!pendingDeposits || pendingDeposits.length === 0) ? (
                                 <div className="text-center py-8 text-gray-500">
                                     <TrendingUp className="mx-auto h-12 w-12 text-gray-300 mb-4" />
                                     <p>No pending deposits.</p>
@@ -621,7 +621,7 @@ const AdminDashboardPage = ({ onLogout }) => {
                             </CardHeader>
                             <CardContent>
                                 <div className="space-y-2">
-                                    {withdrawalHistory.slice(0, 5).map(withdrawal => (
+                                    {withdrawalHistory && withdrawalHistory.slice(0, 5).map(withdrawal => (
                                         <div key={withdrawal.id} className="p-3 bg-gray-50 rounded-lg">
                                             <div className="flex justify-between items-center">
                                                 <div>
@@ -638,7 +638,7 @@ const AdminDashboardPage = ({ onLogout }) => {
                                             </div>
                                         </div>
                                     ))}
-                                    {withdrawalHistory.length === 0 && (
+                                    {(!withdrawalHistory || withdrawalHistory.length === 0) && (
                                         <p className="text-gray-500 text-center py-4">No withdrawal history</p>
                                     )}
                                 </div>
@@ -659,7 +659,7 @@ const AdminDashboardPage = ({ onLogout }) => {
                             </CardHeader>
                             <CardContent>
                                 <div className="space-y-2">
-                                    {depositHistory.slice(0, 5).map(deposit => (
+                                    {depositHistory && depositHistory.slice(0, 5).map(deposit => (
                                         <div key={deposit.id} className="p-3 bg-gray-50 rounded-lg">
                                             <div className="flex justify-between items-center">
                                                 <div>
@@ -676,7 +676,7 @@ const AdminDashboardPage = ({ onLogout }) => {
                                             </div>
                                         </div>
                                     ))}
-                                    {depositHistory.length === 0 && (
+                                    {(!depositHistory || depositHistory.length === 0) && (
                                         <p className="text-gray-500 text-center py-4">No deposit history</p>
                                     )}
                                 </div>
@@ -707,7 +707,7 @@ const AdminDashboardPage = ({ onLogout }) => {
                             <Label htmlFor="description">Description</Label>
                             <Input 
                                 id="description" 
-                                name="description"
+                                name="description" 
                                 defaultValue={currentTask?.description || ''} 
                                 placeholder="Enter task description"
                                 required 
@@ -776,7 +776,7 @@ const AdminDashboardPage = ({ onLogout }) => {
                         <DialogTitle>Complete Withdrawal History</DialogTitle>
                     </DialogHeader>
                     <div className="space-y-4">
-                        {withdrawalHistory.map(withdrawal => (
+                        {withdrawalHistory && withdrawalHistory.map(withdrawal => (
                             <div key={withdrawal.id} className="p-4 border rounded-lg">
                                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                                     <div>
@@ -807,14 +807,14 @@ const AdminDashboardPage = ({ onLogout }) => {
                                 </div>
                             </div>
                         ))}
-                        {withdrawalHistory.length === 0 && (
+                        {(!withdrawalHistory || withdrawalHistory.length === 0) && (
                             <p className="text-center text-gray-500 py-8">No withdrawal history available</p>
                         )}
                     </div>
                     <DialogFooter>
                         <Button 
                             onClick={() => handleDownloadHistory(withdrawalHistory, 'withdrawal')}
-                            disabled={withdrawalHistory.length === 0}
+                            disabled={!withdrawalHistory || withdrawalHistory.length === 0}
                         >
                             <Download className="h-4 w-4 mr-2" />
                             Download Excel
@@ -833,7 +833,7 @@ const AdminDashboardPage = ({ onLogout }) => {
                         <DialogTitle>Complete Deposit History</DialogTitle>
                     </DialogHeader>
                     <div className="space-y-4">
-                        {depositHistory.map(deposit => (
+                        {depositHistory && depositHistory.map(deposit => (
                             <div key={deposit.id} className="p-4 border rounded-lg">
                                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                                     <div>
@@ -864,14 +864,14 @@ const AdminDashboardPage = ({ onLogout }) => {
                                 </div>
                             </div>
                         ))}
-                        {depositHistory.length === 0 && (
+                        {(!depositHistory || depositHistory.length === 0) && (
                             <p className="text-center text-gray-500 py-8">No deposit history available</p>
                         )}
                     </div>
                     <DialogFooter>
                         <Button 
                             onClick={() => handleDownloadHistory(depositHistory, 'deposit')}
-                            disabled={depositHistory.length === 0}
+                            disabled={!depositHistory || depositHistory.length === 0}
                         >
                             <Download className="h-4 w-4 mr-2" />
                             Download Excel
@@ -914,4 +914,3 @@ const AdminDashboardPage = ({ onLogout }) => {
 };
 
 export default AdminDashboardPage;
-                                        
