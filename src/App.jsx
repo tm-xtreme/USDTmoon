@@ -61,37 +61,37 @@ const AppLayout = () => {
           </div>
         </div>
       </header>
-      <main className="flex-grow pt-28 pb-24">
+      <main className="flex-grow pt-16 pb-24"> {/* Adjusted padding-top to remove space */}
         <Outlet />
       </main>
       <BottomNav />
       <Toaster />
       <Sheet open={isQrSheetOpen} onOpenChange={setQrSheetOpen}>
         <SheetContent side="bottom" className="rounded-t-2xl bg-brand-bg text-brand-text p-6 h-auto max-h-[90vh] flex flex-col">
-            <SheetHeader className="text-center mb-4">
-                <SheetTitle className="text-2xl font-bold">Deposit USDT</SheetTitle>
-                <SheetDescription className="text-sm">
-                    Only send USDT (BEP20) to this address.
-                </SheetDescription>
-            </SheetHeader>
-            <div className="flex-grow flex flex-col items-center justify-center space-y-4 py-4 overflow-y-auto">
-                <div className="p-4 bg-white rounded-lg border">
-                    <QRCode value={depositAddress} size={Math.min(window.innerWidth * 0.6, 200)} />
-                </div>
-                <div className="w-full max-w-xs p-3 bg-white/50 rounded-lg flex items-center justify-between">
-                    <span className="text-sm font-mono truncate">{depositAddress}</span>
-                    <Button variant="ghost" size="sm" onClick={handleCopy}>Copy</Button>
-                </div>
-                <ul className="text-xs text-gray-500 space-y-2 list-disc list-inside max-w-xs">
-                    <li>We only accept USDT deposits through the BNB Smart Chain (BEP20).</li>
-                    <li>The deposit amount will be credited to your account after network confirmation.</li>
-                    <li>We are not responsible for any incorrect deposits involving other assets.</li>
-                </ul>
+          <SheetHeader className="text-center mb-4">
+            <SheetTitle className="text-2xl font-bold">Deposit USDT</SheetTitle>
+            <SheetDescription className="text-sm">
+              Only send USDT (BEP20) to this address.
+            </SheetDescription>
+          </SheetHeader>
+          <div className="flex-grow flex flex-col items-center justify-center space-y-4 py-4 overflow-y-auto">
+            <div className="p-4 bg-white rounded-lg border">
+              <QRCode value={depositAddress} size={Math.min(window.innerWidth * 0.6, 200)} />
             </div>
-             <Button onClick={() => setQrSheetOpen(false)} variant="ghost" className="absolute top-4 right-4 rounded-full p-2 h-auto w-auto">
-                <X className="h-4 w-4" />
-                <span className="sr-only">Close</span>
-            </Button>
+            <div className="w-full max-w-xs p-3 bg-white/50 rounded-lg flex items-center justify-between">
+              <span className="text-sm font-mono truncate">{depositAddress}</span>
+              <Button variant="ghost" size="sm" onClick={handleCopy}>Copy</Button>
+            </div>
+            <ul className="text-xs text-gray-500 space-y-2 list-disc list-inside max-w-xs">
+              <li>We only accept USDT deposits through the BNB Smart Chain (BEP20).</li>
+              <li>The deposit amount will be credited to your account after network confirmation.</li>
+              <li>We are not responsible for any incorrect deposits involving other assets.</li>
+            </ul>
+          </div>
+          <Button onClick={() => setQrSheetOpen(false)} variant="ghost" className="absolute top-4 right-4 rounded-full p-2 h-auto w-auto">
+            <X className="h-4 w-4" />
+            <span className="sr-only">Close</span>
+          </Button>
         </SheetContent>
       </Sheet>
     </div>
@@ -110,7 +110,7 @@ const PageWithHeader = ({ title, children, showBackButton = true }) => {
         )}
         <h1 className="text-xl font-bold text-brand-text">{title}</h1>
       </header>
-      <main className="flex-grow pt-20 pb-4">
+      <main className="flex-grow pt-16 pb-4"> {/* Adjusted padding-top to remove space */}
         {children}
       </main>
       <Toaster />
@@ -138,3 +138,4 @@ function App() {
 }
 
 export default App;
+            
