@@ -99,6 +99,46 @@ export const updateUserData = async (userId, updateData) => {
   }
 };
 
+// Transaction Management
+export const addTransaction = async (userId, transactionData) => {
+  try {
+    const transactionsRef = collection(db, 'transactions');
+    const docRef = await addDoc(transactionsRef, {
+      userId,
+      ...transactionData,
+      createdAt: serverTimestamp()
+    });
+    return docRef.id;
+  } catch (error) {
+    console.error('Error adding transaction:', error);
+    throw error;
+  }
+};
+
+export const getUserTransactions = async (userId, limitCount = 50) => {
+  try {
+    const transactionsRef = collection(db, 'transactions');
+    const q = query(
+      transactionsRef, 
+      where('userId', '==', userId),
+      orderBy('createdAt', 'desc'),
+      limit(limitCount)
+    );
+    
+    const querySnapshot = await getDocs(q);
+    const transactions = [];
+    
+    querySnapshot.forEach((doc) => {
+      transactions.push({ id: doc.id, ...doc.data() });
+    });
+    
+    return transactions;
+  } catch (error) {
+    console.error('Error getting transactions:', error);
+    throw error;
+  }
+};
+
 // Admin Statistics
 export const getAdminStats = async () => {
   try {
@@ -442,7 +482,7 @@ export const approveRequest = async (requestId, requestType) => {
           completedTasks: [...completedTasks, requestData.taskId]
         });
 
-        // Add transaction record
+        // Add transaction record for task reward
         await addTransaction(requestData.userId, {
           type: 'task_reward',
           amount: requestData.taskReward,
@@ -463,7 +503,7 @@ export const approveRequest = async (requestId, requestType) => {
           balance: newBalance
         });
 
-        // Add transaction record
+        // Add transaction record for deposit
         await addTransaction(requestData.userId, {
           type: 'deposit',
           amount: requestData.amount,
@@ -473,134 +513,133 @@ export const approveRequest = async (requestId, requestType) => {
         });
       }
     } else if (requestType === 'withdrawal') {
-    // Withdrawal approval - balance was already deducted when request was made
-    // Just update the request status (already done above)
+      // Withdrawal approval - balance was already deducted when request was made
+      // Just update the request status (already done above)
     }
 
-// Send admin notification for approval
-await sendAdminNotification(`${requestType.charAt(0).toUpperCase() + requestType.slice(1)} approved for ${requestData.userName}`);
+    // Send admin notification for approval
+    await sendAdminNotification(`${requestType.charAt(0).toUpperCase() + requestType.slice(1)} approved for ${requestData.userName}`);
 
-// Return success
-return { success: true };
-} catch (error) {
+    return { success: true };
+  } catch (error) {
     console.error('Error approving request:', error);
     return { success: false, error: error.message };
-}
+  }
 };
 
 export const rejectRequest = async (requestId, requestType, reason = '') => {
-    try {
-        const requestRef = doc(db, 'pendingApprovals', requestId);
-        const requestDoc = await getDoc(requestRef);
-        
-        if (!requestDoc.exists()) {
-            throw new Error('Request not found');
-        }
-        
-        const requestData = requestDoc.data();
-        
-        // Update request status
-        await updateDoc(requestRef, {
-            status: 'rejected',
-            rejectedAt: serverTimestamp(),
-            rejectionReason: reason
-        });
-        
-        // If it's a withdrawal, refund the balance
-        if (requestType === 'withdrawal') {
-            const userRef = doc(db, 'users', requestData.userId);
-            const userDoc = await getDoc(userRef);
-            
-            if (userDoc.exists()) {
-                const userData = userDoc.data();
-                const newBalance = (userData.balance || 0) + requestData.amount;
-                
-                await updateDoc(userRef, {
-                    balance: newBalance
-                });
-            }
-        }
-
-        // Send admin notification for rejection
-        await sendAdminNotification(`${requestType.charAt(0).toUpperCase() + requestType.slice(1)} rejected for ${requestData.userName}. Reason: ${reason}`);
-
-        return { success: true };
-    } catch (error) {
-        console.error('Error rejecting request:', error);
-        return { success: false, error: error.message };
+  try {
+    const requestRef = doc(db, 'pendingApprovals', requestId);
+    const requestDoc = await getDoc(requestRef);
+    
+    if (!requestDoc.exists()) {
+      throw new Error('Request not found');
     }
+    
+    const requestData = requestDoc.data();
+    
+    // Update request status
+    await updateDoc(requestRef, {
+      status: 'rejected',
+      rejectedAt: serverTimestamp(),
+      rejectionReason: reason
+    });
+    
+    // If it's a withdrawal, refund the balance
+    if (requestType === 'withdrawal') {
+      const userRef = doc(db, 'users', requestData.userId);
+      const userDoc = await getDoc(userRef);
+      
+      if (userDoc.exists()) {
+        const userData = userDoc.data();
+        const newBalance = (userData.balance || 0) + requestData.amount;
+        
+        await updateDoc(userRef, {
+          balance: newBalance
+        });
+      }
+    }
+
+    // Send admin notification for rejection
+    await sendAdminNotification(`${requestType.charAt(0).toUpperCase() + requestType.slice(1)} rejected for ${requestData.userName}. Reason: ${reason}`);
+
+    return { success: true };
+  } catch (error) {
+    console.error('Error rejecting request:', error);
+    return { success: false, error: error.message };
+  }
 };
 
 // Admin Notifications Management
 export const getAdminNotifications = async (limitCount = 50) => {
-    try {
-        const notificationsRef = collection(db, 'adminNotifications');
-        const q = query(notificationsRef, orderBy('createdAt', 'desc'), limit(limitCount));
-        const querySnapshot = await getDocs(q);
-        
-        const notifications = [];
-        querySnapshot.forEach((doc) => {
-            notifications.push({ id: doc.id, ...doc.data() });
-        });
-        
-        return notifications;
-    } catch (error) {
-        console.error('Error getting admin notifications:', error);
-        throw error;
-    }
+  try {
+    const notificationsRef = collection(db, 'adminNotifications');
+    const q = query(notificationsRef, orderBy('createdAt', 'desc'), limit(limitCount));
+    const querySnapshot = await getDocs(q);
+    
+    const notifications = [];
+    querySnapshot.forEach((doc) => {
+      notifications.push({ id: doc.id, ...doc.data() });
+    });
+    
+    return notifications;
+  } catch (error) {
+    console.error('Error getting admin notifications:', error);
+    throw error;
+  }
 };
 
 export const markNotificationAsRead = async (notificationId) => {
-    try {
-        const notificationRef = doc(db, 'adminNotifications', notificationId);
-        await updateDoc(notificationRef, {
-            read: true,
-            readAt: serverTimestamp()
-        });
-        return true;
-    } catch (error) {
-        console.error('Error marking notification as read:', error);
-        throw error;
-    }
+  try {
+    const notificationRef = doc(db, 'adminNotifications', notificationId);
+    await updateDoc(notificationRef, {
+      read: true,
+      readAt: serverTimestamp()
+    });
+    return true;
+  } catch (error) {
+    console.error('Error marking notification as read:', error);
+    throw error;
+  }
 };
 
 // Utility Functions
 const generateReferralCode = () => {
-    return Math.random().toString(36).substring(2, 8).toUpperCase();
+  return Math.random().toString(36).substring(2, 8).toUpperCase();
 };
 
 // Real-time listeners
 export const subscribeToUserData = (userId, callback) => {
-    const userRef = doc(db, 'users', userId);
-    return onSnapshot(userRef, (doc) => {
-        if (doc.exists()) {
-            callback({ id: doc.id, ...doc.data() });
-        }
-    });
+  const userRef = doc(db, 'users', userId);
+  return onSnapshot(userRef, (doc) => {
+    if (doc.exists()) {
+      callback({ id: doc.id, ...doc.data() });
+    }
+  });
 };
 
 export const subscribeToTaskSubmissions = (callback) => {
-    const submissionsRef = collection(db, 'taskSubmissions');
-    const q = query(submissionsRef, where('status', '==', 'pending_approval'), orderBy('submittedAt', 'desc'));
-    
-    return onSnapshot(q, (querySnapshot) => {
-        const submissions = [];
-        querySnapshot.forEach((doc) => {
-            submissions.push({ id: doc.id, ...doc.data() });
-        });
-        callback(submissions);
+  const submissionsRef = collection(db, 'taskSubmissions');
+  const q = query(submissionsRef, where('status', '==', 'pending_approval'), orderBy('submittedAt', 'desc'));
+  
+  return onSnapshot(q, (querySnapshot) => {
+    const submissions = [];
+    querySnapshot.forEach((doc) => {
+      submissions.push({ id: doc.id, ...doc.data() });
     });
+    callback(submissions);
+  });
 };
 
 export const subscribeToAdminNotifications = (callback) => {
-    const notificationsRef = collection(db, 'adminNotifications');
-    const q = query(notificationsRef, where('read', '==', false), orderBy('createdAt', 'desc'));
-    
-    return onSnapshot(q, (querySnapshot) => {
-        const notifications = [];
-        querySnapshot.forEach((doc) => {
-            notifications.push({ id: doc.id, ...doc.data() });
-        });
-        callback(notifications);
+  const notificationsRef = collection(db, 'adminNotifications');
+  const q = query(notificationsRef, where('read', '==', false), orderBy('createdAt', 'desc'));
+  
+  return onSnapshot(q, (querySnapshot) => {
+    const notifications = [];
+    querySnapshot.forEach((doc) => {
+      notifications.push({ id: doc.id, ...doc.data() });
     });
+    callback(notifications);
+  });
 };
