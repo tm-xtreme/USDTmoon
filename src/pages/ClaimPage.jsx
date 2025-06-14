@@ -1,16 +1,29 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useGameData } from '@/hooks/useGameData';
 import { useToast } from '@/components/ui/use-toast';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { Progress } from '@/components/ui/progress';
 import { useNavigate } from 'react-router-dom';
 import { addClaimTransaction, updateUserData } from '@/lib/firebaseService';
+import { Zap, TrendingUp, Clock, Coins } from 'lucide-react';
 
 const ClaimPage = () => {
     const { data, setData } = useGameData();
     const { toast } = useToast();
     const navigate = useNavigate();
     const [claiming, setClaiming] = useState(false);
+    const [miningEffect, setMiningEffect] = useState(false);
+
+    // Mining effect animation
+    useEffect(() => {
+        const interval = setInterval(() => {
+            setMiningEffect(true);
+            setTimeout(() => setMiningEffect(false), 1000);
+        }, 3000);
+
+        return () => clearInterval(interval);
+    }, []);
 
     if (!data) {
         return (
@@ -24,6 +37,11 @@ const ClaimPage = () => {
     const timeToFillMs = data.storageFillTime - Date.now();
     const hours = Math.floor(timeToFillMs / (1000 * 60 * 60));
     const minutes = Math.floor((timeToFillMs % (1000 * 60 * 60)) / (1000 * 60));
+    const seconds = Math.floor((timeToFillMs % (1000 * 60)) / 1000);
+    
+    // Calculate storage progress percentage
+    const storageProgress = (data.storageMined / data.storageCapacity) * 100;
+    const isStorageFull = data.storageMined >= data.storageCapacity;
     
     // Calculate dynamic claim fee based on collected amount
     const calculateClaimFee = (amount) => {
@@ -112,7 +130,7 @@ const ClaimPage = () => {
             }
             
             toast({
-                title: "Claim Successful!",
+                title: "Claim Successful! 🎉",
                 description: `Claimed ${claimAmount.toFixed(8)} USDT. Fee: ${claimFee.toFixed(8)} USDT. Net: +${(claimAmount - claimFee).toFixed(8)} USDT`,
             });
             
@@ -125,7 +143,7 @@ const ClaimPage = () => {
             console.error('Error during claim:', error);
             toast({
                 title: "Claim Failed",
-                description: `Error: ${error.message || 'An unexpected error occurred. Please try again.'}`,
+                description: error?.message || 'An unexpected error occurred. Please try again.',
                 variant: "destructive",
             });
         } finally {
@@ -136,44 +154,80 @@ const ClaimPage = () => {
     const canClaim = data.storageMined > 0 && data.totalMined >= claimFee;
 
     return (
-        <div className="flex flex-col items-center justify-center p-4 text-center h-full">
-            <p className="text-lg">In storage:</p>
-            <p className="text-5xl font-bold my-2">{data.storageMined.toFixed(8)}</p>
-            <p className="text-sm text-gray-500">USDT Balance: {data.totalMined.toFixed(8)}</p>
-            
-            <Card className="w-full max-w-sm mt-8 p-4 bg-white rounded-2xl shadow-lg">
-                <CardContent className="flex items-center justify-between p-0">
-                    <div className="flex items-center space-x-3">
-                        <img  
-                            className="h-12 w-12 rounded-lg object-cover" 
-                            alt="Treasure chest" 
-                            src="https://images.unsplash.com/photo-1642211841112-2beeda7bfc07" 
-                        />
-                        <div>
-                            <p className="font-bold">Level {data.storageLevel}</p>
-                            <p className="text-xs text-gray-500">
-                                {timeToFillMs > 0 ? `${hours}h ${minutes}m to fill` : 'Filled'}
-                            </p>
-                            <p className="text-xs text-brand-text font-semibold">
-                                {data.minerRate.toFixed(8)} USDT/hour
+        <div className="flex flex-col items-center justify-center p-4 text-center h-full bg-gradient-to-b from-blue-50 to-white">
+            {/* Mining Status Header */}
+            <div className="mb-6">
+                <div className="flex items-center justify-center space-x-2 mb-2">
+                    <Zap className={`h-6 w-6 text-yellow-500 ${miningEffect ? 'animate-pulse' : ''}`} />
+                    <p className="text-lg font-semibold">Mining Status</p>
+                    <TrendingUp className="h-5 w-5 text-green-500" />
+                </div>
+                <p className="text-5xl font-bold my-2 text-brand-text">{data.storageMined.toFixed(8)}</p>
+                <p className="text-sm text-gray-500">USDT Balance: {data.totalMined.toFixed(8)}</p>
+            </div>
+
+            {/* Storage Progress Card */}
+            <Card className="w-full max-w-sm mb-6 p-4 bg-white rounded-2xl shadow-lg border-2 border-gray-100">
+                <CardContent className="p-0">
+                    <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center space-x-2">
+                            <img  
+                                className="h-10 w-10 rounded-lg object-cover" 
+                                alt="Treasure chest" 
+                                src="https://images.unsplash.com/photo-1642211841112-2beeda7bfc07" 
+                            />
+                            <div>
+                                <p className="font-bold text-sm">Storage Level {data.storageLevel}</p>
+                                <p className="text-xs text-gray-500 flex items-center">
+                                    <Clock className="h-3 w-3 mr-1" />
+                                    {timeToFillMs > 0 ? `${hours}h ${minutes}m ${seconds}s` : 'Filled'}
+                                </p>
+                            </div>
+                        </div>
+                        <div className="text-right">
+                            <p className="text-xs text-brand-text font-semibold flex items-center">
+                                <Coins className="h-3 w-3 mr-1" />
+                                {data.minerRate.toFixed(8)} USDT/h
                             </p>
                         </div>
                     </div>
-                    <Button 
-                        onClick={onClaimClick} 
-                        disabled={!canClaim || claiming}
-                        className={`font-bold text-lg px-8 ${
-                            canClaim && !claiming 
-                                ? 'bg-brand-yellow text-black hover:bg-yellow-400' 
-                                : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                        }`}
-                    >
-                        {claiming ? 'Claiming...' : 'Claim'}
-                    </Button>
+                    
+                    {/* Progress Bar */}
+                    <div className="mb-3">
+                        <div className="flex justify-between text-xs text-gray-500 mb-1">
+                            <span>Storage Progress</span>
+                            <span>{storageProgress.toFixed(1)}%</span>
+                        </div>
+                        <Progress 
+                            value={storageProgress} 
+                            className="h-3 bg-gray-200"
+                            style={{
+                                '--progress-background': isStorageFull ? '#10b981' : '#fbbf24'
+                            }}
+                        />
+                        <div className="flex justify-between text-xs text-gray-400 mt-1">
+                            <span>{data.storageMined.toFixed(8)}</span>
+                            <span>{data.storageCapacity.toFixed(8)} USDT</span>
+                        </div>
+                    </div>
+
+                    {/* Status Indicator */}
+                    {isStorageFull ? (
+                        <div className="flex items-center justify-center space-x-2 text-green-600 bg-green-50 rounded-lg p-2">
+                            <Zap className="h-4 w-4" />
+                            <span className="text-sm font-semibold">Storage Full - Ready to Claim!</span>
+                        </div>
+                    ) : (
+                        <div className="flex items-center justify-center space-x-2 text-blue-600 bg-blue-50 rounded-lg p-2">
+                            <TrendingUp className="h-4 w-4 animate-pulse" />
+                            <span className="text-sm font-semibold">Mining in Progress...</span>
+                        </div>
+                    )}
                 </CardContent>
             </Card>
 
-            <div className="w-full max-w-sm space-y-2 mt-4">
+            {/* Claim Details */}
+            <div className="w-full max-w-sm space-y-2 mb-6">
                 <div className="flex justify-between text-sm">
                     <span>Claim amount</span>
                     <span className="font-bold text-green-600">
@@ -205,6 +259,29 @@ const ClaimPage = () => {
                     </span>
                 </div>
             </div>
+
+            {/* Claim Button */}
+            <Button 
+                onClick={onClaimClick} 
+                disabled={!canClaim || claiming}
+                className={`w-full max-w-sm h-14 font-bold text-lg rounded-xl transition-all duration-300 ${
+                    canClaim && !claiming 
+                        ? 'bg-brand-yellow text-black hover:bg-yellow-400 hover:scale-105 shadow-lg' 
+                        : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                }`}
+            >
+                {claiming ? (
+                    <div className="flex items-center space-x-2">
+                        <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-black"></div>
+                        <span>Claiming...</span>
+                    </div>
+                ) : (
+                    <div className="flex items-center space-x-2">
+                        <Coins className="h-5 w-5" />
+                        <span>Claim USDT</span>
+                    </div>
+                )}
+            </Button>
             
             {!canClaim && (
                 <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg max-w-sm">
