@@ -107,7 +107,7 @@ const BoostPage = () => {
 
     if (!data) {
         return (
-            <div className="text-center p-10">
+            <div className="text-center p-10 bg-gradient-to-b from-yellow-50 to-orange-50 min-h-screen">
                 <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-brand-yellow mx-auto"></div>
                 <p className="mt-4">Loading Boost Options...</p>
             </div>
@@ -198,12 +198,12 @@ const BoostPage = () => {
     const nextStorageCapacity = getNextStorageCapacity(data.storageLevel);
 
     return (
-        <div className="p-4 space-y-6 bg-gradient-to-b from-blue-50 to-white min-h-screen">
+        <div className="p-4 space-y-6 bg-gradient-to-b from-yellow-50 to-orange-50 min-h-screen">
             {/* Header */}
             <div className="text-center">
                 <h1 className="text-3xl font-bold text-brand-text mb-2">Boost Your Mining</h1>
                 <p className="text-gray-600">Upgrade your equipment to maximize earnings</p>
-                <div className="mt-4 p-4 bg-white rounded-xl shadow-md">
+                <div className="mt-4 p-4 bg-white rounded-xl shadow-md border border-gray-100">
                     <div className="flex items-center justify-center space-x-2 mb-2">
                         <Coins className="h-5 w-5 text-brand-yellow" />
                         <span className="text-sm text-gray-500">Available Balance</span>
@@ -214,7 +214,7 @@ const BoostPage = () => {
 
             {/* Current Stats */}
             <div className="grid grid-cols-2 gap-4">
-                <Card className="bg-white rounded-xl shadow-md">
+                <Card className="bg-white rounded-xl shadow-md border border-gray-100">
                     <CardContent className="p-4 text-center">
                         <Zap className="h-8 w-8 text-yellow-500 mx-auto mb-2" />
                         <p className="text-sm text-gray-500">Mining Rate</p>
@@ -223,7 +223,7 @@ const BoostPage = () => {
                     </CardContent>
                 </Card>
                 
-                <Card className="bg-white rounded-xl shadow-md">
+                <Card className="bg-white rounded-xl shadow-md border border-gray-100">
                     <CardContent className="p-4 text-center">
                         <Database className="h-8 w-8 text-blue-500 mx-auto mb-2" />
                         <p className="text-sm text-gray-500">Storage Capacity</p>
@@ -287,21 +287,9 @@ const BoostPage = () => {
                     </div>
                 </CardContent>
             </Card>
-
-            {/* Tips */}
-            <Card className="bg-blue-50 border-blue-200">
-                <CardContent className="p-4">
-                    <h3 className="font-bold text-lg mb-2 text-blue-800">💡 Pro Tips</h3>
-                    <ul className="text-sm text-blue-700 space-y-1">
-                        <li>• Upgrade mining equipment first for faster earnings</li>
-                        <li>• Balance both upgrades for optimal efficiency</li>
-                        <li>• Higher levels provide exponentially better returns</li>
-                        <li>• Complete tasks to earn upgrade funds faster</li>
-                    </ul>
-                </CardContent>
-            </Card>
         </div>
     );
 };
 
 export default BoostPage;
+        
