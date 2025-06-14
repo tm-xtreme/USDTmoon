@@ -8,7 +8,7 @@ import * as Icons from 'lucide-react';
 
 const TaskItem = ({ task, userSubmission }) => {
     const { toast } = useToast();
-    const { data: gameData, handleTaskAction } = useGameData();
+    const { handleTaskAction } = useGameData();
     const [processing, setProcessing] = useState(false);
     const [hasVisited, setHasVisited] = useState(false);
     
@@ -18,7 +18,7 @@ const TaskItem = ({ task, userSubmission }) => {
             case 'pending_approval':
                 return 'pending_approval';
             case 'approved':
-                return 'completed'; // Map approved to completed for UI
+                return 'completed';
             case 'rejected':
                 return 'rejected';
             default:
@@ -154,41 +154,13 @@ const TaskItem = ({ task, userSubmission }) => {
                         }
                     }
                 }
-            } else if (userTask.status === 'pending_claim') {
-                // Claim reward (this case might not be used in new system but kept for compatibility)
-                const result = await handleTaskAction(task);
-                
-                if (result) {
-                    toast({
-                        title: "Reward Claimed! 💰",
-                        description: `You received ${task.reward} USDT!`,
-                    });
-                } else {
-                    toast({
-                        title: "Claim Failed",
-                        description: "Failed to claim reward. Please try again.",
-                        variant: 'destructive'
-                    });
-                }
             } else if (userTask.status === 'rejected') {
-                // Reset and try again
+                // Reset and try again - for rejected tasks, just reset the local state
                 setHasVisited(false);
-                
-                // For rejected tasks, we need to allow retry
-                const result = await handleTaskAction(task, 'reset');
-                
-                if (result) {
-                    toast({
-                        title: "Task Reset",
-                        description: "You can now retry this task.",
-                    });
-                } else {
-                    toast({
-                        title: "Reset Failed",
-                        description: "Failed to reset task. Please try again.",
-                        variant: 'destructive'
-                    });
-                }
+                toast({
+                    title: "Try Again",
+                    description: "You can now retry this task.",
+                });
             }
         } catch (error) {
             console.error('Error handling task action:', error);
@@ -322,34 +294,20 @@ const TaskItem = ({ task, userSubmission }) => {
 };
 
 const TasksPage = () => {
-    const { data: gameData } = useGameData();
+    const { data: gameData, loading: gameLoading } = useGameData();
     const [tasks, setTasks] = useState([]);
-    const [taskSubmissions, setTaskSubmissions] = useState([]);
     const [loading, setLoading] = useState(true);
     const { toast } = useToast();
 
     useEffect(() => {
-        const fetchData = async () => {
+        const fetchTasks = async () => {
             try {
                 setLoading(true);
-                
-                // Fetch tasks
                 const tasksData = await getAllTasks();
                 console.log('Fetched tasks:', tasksData);
                 setTasks(tasksData || []);
-                
-                // Fetch user's task submissions
-                if (gameData?.userId) {
-                    // You'll need to create this function in your firebaseService
-                    // const userSubmissions = await getUserTaskSubmissions(gameData.userId);
-                    // For now, assuming it's available in gameData
-                    const userSubmissions = gameData?.taskSubmissions || [];
-                    console.log('User submissions:', userSubmissions);
-                    setTaskSubmissions(userSubmissions);
-                }
-                
             } catch (error) {
-                console.error('Error fetching data:', error);
+                console.error('Error fetching tasks:', error);
                 toast({
                     title: "Error",
                     description: "Failed to load tasks. Please try again.",
@@ -360,10 +318,10 @@ const TasksPage = () => {
             }
         };
 
-        fetchData();
-    }, [toast, gameData?.userId]);
+        fetchTasks();
+    }, [toast]);
 
-    if (loading) {
+    if (loading || gameLoading) {
         return (
             <div className="p-4 space-y-6 bg-gradient-to-b from-yellow-50 to-orange-50 min-h-screen">
                 <div className="text-center">
@@ -387,11 +345,14 @@ const TasksPage = () => {
 
     // Create a map of taskId to submission for easy lookup
     const submissionMap = {};
-    if (taskSubmissions && Array.isArray(taskSubmissions)) {
-        taskSubmissions.forEach(submission => {
+    if (gameData.userTasks && Array.isArray(gameData.userTasks)) {
+        gameData.userTasks.forEach(submission => {
             submissionMap[submission.taskId] = submission;
         });
     }
+
+    console.log('GameData userTasks:', gameData.userTasks);
+    console.log('Submission Map:', submissionMap);
 
     // Filter tasks by status with error handling
     const availableTasks = tasks.filter(t => {
@@ -404,7 +365,7 @@ const TasksPage = () => {
             return true; // Default to available if error
         }
     });
-
+    
     const pendingTasks = tasks.filter(t => {
         try {
             const submission = submissionMap[t.id];
@@ -543,3 +504,4 @@ const TasksPage = () => {
 };
 
 export default TasksPage;
+                                
