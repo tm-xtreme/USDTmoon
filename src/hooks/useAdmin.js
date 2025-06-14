@@ -23,9 +23,8 @@ import {
   getPendingTaskSubmissions,
   getAllWithdrawals,
   getAllDeposits,
-  updateTaskSubmissionStatus,
-  approveTaskSubmission,
-  rejectTaskSubmission
+  approveTaskSubmission as approveTaskSubmissionFirebase,
+  rejectTaskSubmission as rejectTaskSubmissionFirebase
 } from '@/lib/firebaseService';
 
 const ADMIN_EMAIL = "admin@moonusdt.com";
@@ -144,7 +143,7 @@ export const useAdmin = () => {
             loadAdminStats();
             loadPendingTransactions();
             loadAllUsers();
-            loadPendingTaskSubmissions(); // Load pending task submissions
+            loadPendingTaskSubmissions();
         }
     }, [isLoggedIn]);
 
@@ -167,18 +166,20 @@ export const useAdmin = () => {
     const loadTasks = async () => {
         try {
             const tasksData = await getAllTasks();
-            setTasks(tasksData);
+            setTasks(tasksData || []);
         } catch (error) {
             console.error('Error loading tasks:', error);
+            setTasks([]);
         }
     };
 
     const loadAdminStats = async () => {
         try {
             const stats = await getAdminStats();
-            setAdminStats(stats);
+            setAdminStats(stats || {});
         } catch (error) {
             console.error('Error loading admin stats:', error);
+            setAdminStats({});
         }
     };
 
@@ -188,46 +189,52 @@ export const useAdmin = () => {
                 getPendingWithdrawals(),
                 getPendingDeposits()
             ]);
-            setPendingWithdrawals(withdrawals);
-            setPendingDeposits(deposits);
+            setPendingWithdrawals(withdrawals || []);
+            setPendingDeposits(deposits || []);
         } catch (error) {
             console.error('Error loading pending transactions:', error);
+            setPendingWithdrawals([]);
+            setPendingDeposits([]);
         }
     };
 
     const loadAllUsers = async () => {
         try {
             const users = await getAllUsers();
-            setAllUsers(users);
+            setAllUsers(users || []);
         } catch (error) {
             console.error('Error loading all users:', error);
+            setAllUsers([]);
         }
     };
 
     const loadPendingTaskSubmissions = async () => {
         try {
             const submissions = await getPendingTaskSubmissions();
-            setPendingTaskSubmissions(submissions);
+            setPendingTaskSubmissions(submissions || []);
         } catch (error) {
             console.error('Error loading pending task submissions:', error);
+            setPendingTaskSubmissions([]);
         }
     };
 
     const loadWithdrawalHistory = async () => {
         try {
             const history = await getAllWithdrawals();
-            setWithdrawalHistory(history);
+            setWithdrawalHistory(history || []);
         } catch (error) {
             console.error('Error loading withdrawal history:', error);
+            setWithdrawalHistory([]);
         }
     };
 
     const loadDepositHistory = async () => {
         try {
             const history = await getAllDeposits();
-            setDepositHistory(history);
+            setDepositHistory(history || []);
         } catch (error) {
             console.error('Error loading deposit history:', error);
+            setDepositHistory([]);
         }
     };
 
@@ -302,7 +309,7 @@ export const useAdmin = () => {
             setAllUsers([]);
             setWithdrawalHistory([]);
             setDepositHistory([]);
-            setPendingTaskSubmissions([]); // Clear pending task submissions
+            setPendingTaskSubmissions([]);
             // Remove from localStorage
             removeAdminSession();
         } catch (error) {
@@ -465,10 +472,12 @@ export const useAdmin = () => {
         }
     };
 
+    // Fixed: Renamed to avoid naming conflict and use correct Firebase functions
     const approveTaskSubmission = async (submissionId, userId, taskReward) => {
         try {
-            await approveTaskSubmission(submissionId, userId, taskReward);
+            await approveTaskSubmissionFirebase(submissionId, userId, taskReward);
             await loadPendingTaskSubmissions(); // Reload pending submissions
+            await loadAdminStats(); // Reload stats
             return true;
         } catch (error) {
             console.error('Error approving task submission:', error);
@@ -476,10 +485,11 @@ export const useAdmin = () => {
         }
     };
 
-    const rejectTaskSubmission = async (submissionId) => {
+    const rejectTaskSubmission = async (submissionId, reason = '') => {
         try {
-            await rejectTaskSubmission(submissionId);
+            await rejectTaskSubmissionFirebase(submissionId, reason);
             await loadPendingTaskSubmissions(); // Reload pending submissions
+            await loadAdminStats(); // Reload stats
             return true;
         } catch (error) {
             console.error('Error rejecting task submission:', error);
@@ -494,7 +504,7 @@ export const useAdmin = () => {
                 loadAdminStats(),
                 loadPendingTransactions(),
                 loadAllUsers(),
-                loadPendingTaskSubmissions() // Refresh pending task submissions
+                loadPendingTaskSubmissions()
             ]);
         } catch (error) {
             console.error('Error refreshing data:', error);
