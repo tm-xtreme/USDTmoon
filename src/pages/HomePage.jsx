@@ -248,7 +248,7 @@ const TransactionHistory = ({ transactions, loading, error, currentPage, totalPa
 
 const WithdrawSheet = ({ open, onOpenChange }) => {
     const { toast } = useToast();
-    const { data, requestWithdrawal } = useGameData(); // Use the hook's requestWithdrawal function
+    const { data, requestWithdrawal } = useGameData();
     const { user } = useTelegram();
     const [amount, setAmount] = useState('');
     const [address, setAddress] = useState('');
@@ -313,7 +313,6 @@ const WithdrawSheet = ({ open, onOpenChange }) => {
                 username: user?.username || user?.first_name || 'Unknown'
             });
 
-            // Use the requestWithdrawal function from useGameData hook
             const result = await requestWithdrawal(numAmount, address.trim());
             
             if (result.success) {
@@ -322,7 +321,6 @@ const WithdrawSheet = ({ open, onOpenChange }) => {
                     description: "Your withdrawal request has been submitted for admin approval. You'll be notified once processed." 
                 });
                 
-                // Clear form and close sheet
                 setAmount('');
                 setAddress('');
                 onOpenChange(false);
@@ -353,54 +351,62 @@ const WithdrawSheet = ({ open, onOpenChange }) => {
             setLoading(false);
         }
     }, [open]);
+
+    const isValidAmount = amount && parseFloat(amount) > 0;
     
     return (
         <Sheet open={open} onOpenChange={onOpenChange}>
-            <SheetContent side="bottom" className="rounded-t-2xl bg-white text-brand-text p-6 h-auto max-h-[90vh] flex flex-col">
-                <SheetHeader className="text-center mb-4">
+            <SheetContent side="bottom" className="rounded-t-2xl bg-white text-brand-text max-h-[95vh] flex flex-col">
+                <SheetHeader className="text-center pb-4 border-b border-gray-100">
                     <SheetTitle className="text-2xl font-bold">Withdraw USDT</SheetTitle>
                     <SheetDescription>Enter withdrawal amount and your BEP20 wallet address</SheetDescription>
                 </SheetHeader>
                 
-                <div className="space-y-4 py-4">
-                    <div>
-                        <Label htmlFor="withdraw-amount" className="text-sm font-semibold">Amount (USDT)</Label>
-                        <Input 
-                            id="withdraw-amount" 
-                            type="number" 
-                            placeholder="0.000000" 
-                            value={amount} 
-                            onChange={e => setAmount(e.target.value)}
-                            disabled={loading}
-                            step="0.000001"
-                            min="0.000001"
-                            className="mt-1"
-                        />
-                        <p className="text-xs text-gray-500 mt-1">
-                            Available: {data?.totalMined?.toFixed(8) || '0.00000000'} USDT
-                        </p>
-                        <p className="text-xs text-gray-400">
-                            Minimum withdrawal: 0.000001 USDT
-                        </p>
-                    </div>
-                    
-                    <div>
-                        <Label htmlFor="withdraw-address" className="text-sm font-semibold">Wallet Address (BEP20)</Label>
-                        <Input 
-                            id="withdraw-address" 
-                            type="text" 
-                            placeholder="0x..." 
-                            value={address} 
-                            onChange={e => setAddress(e.target.value)}
-                            disabled={loading}
-                            className="mt-1"
-                        />
-                        <p className="text-xs text-gray-400 mt-1">
-                            Enter your BEP20 (BSC) wallet address for USDT withdrawal
-                        </p>
+                {/* Scrollable Content Area */}
+                <div className="flex-1 overflow-y-auto py-4 px-6 space-y-4">
+                    {/* Form Fields */}
+                    <div className="space-y-4">
+                        <div>
+                            <Label htmlFor="withdraw-amount" className="text-sm font-semibold">Amount (USDT)</Label>
+                            <Input 
+                                id="withdraw-amount" 
+                                type="number" 
+                                placeholder="0.000000" 
+                                value={amount} 
+                                onChange={e => setAmount(e.target.value)}
+                                disabled={loading}
+                                step="0.000001"
+                                min="0.000001"
+                                className="mt-1"
+                            />
+                            <div className="mt-1 space-y-1">
+                                <p className="text-xs text-gray-500">
+                                    Available: {data?.totalMined?.toFixed(8) || '0.00000000'} USDT
+                                </p>
+                                <p className="text-xs text-gray-400">
+                                    Minimum withdrawal: 0.000001 USDT
+                                </p>
+                            </div>
+                        </div>
+                        
+                        <div>
+                            <Label htmlFor="withdraw-address" className="text-sm font-semibold">Wallet Address (BEP20)</Label>
+                            <Input 
+                                id="withdraw-address" 
+                                type="text" 
+                                placeholder="0x..." 
+                                value={address} 
+                                onChange={e => setAddress(e.target.value)}
+                                disabled={loading}
+                                className="mt-1"
+                            />
+                            <p className="text-xs text-gray-400 mt-1">
+                                Enter your BEP20 (BSC) wallet address for USDT withdrawal
+                            </p>
+                        </div>
                     </div>
 
-                    {/* Withdrawal Info */}
+                    {/* Important Information - Always Visible */}
                     <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
                         <h4 className="text-sm font-semibold text-yellow-800 mb-2">⚠️ Important Information</h4>
                         <ul className="text-xs text-yellow-700 space-y-1">
@@ -412,10 +418,10 @@ const WithdrawSheet = ({ open, onOpenChange }) => {
                         </ul>
                     </div>
 
-                    {/* Summary */}
-                    {amount && parseFloat(amount) > 0 && (
+                    {/* Summary - Only show when amount is valid */}
+                    {isValidAmount && (
                         <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                            <h4 className="text-sm font-semibold text-blue-800 mb-2">Withdrawal Summary</h4>
+                            <h4 className="text-sm font-semibold text-blue-800 mb-2">📋 Withdrawal Summary</h4>
                             <div className="space-y-1 text-sm">
                                 <div className="flex justify-between">
                                     <span className="text-blue-700">Amount:</span>
@@ -429,16 +435,25 @@ const WithdrawSheet = ({ open, onOpenChange }) => {
                                     <span className="text-blue-700">Status:</span>
                                     <span className="font-semibold text-orange-600">Pending Approval</span>
                                 </div>
+                                {address && (
+                                    <div className="flex justify-between">
+                                        <span className="text-blue-700">To Address:</span>
+                                        <span className="font-mono text-xs text-blue-900 break-all">
+                                            {address.length > 20 ? `${address.slice(0, 10)}...${address.slice(-10)}` : address}
+                                        </span>
+                                    </div>
+                                )}
                             </div>
                         </div>
                     )}
                 </div>
                 
-                <SheetFooter className="mt-auto">
-                    <div className="w-full space-y-2">
+                {/* Fixed Footer with Buttons */}
+                <div className="border-t border-gray-100 p-6 bg-white">
+                    <div className="space-y-3">
                         <Button 
                             onClick={handleSubmit} 
-                            className="w-full bg-brand-yellow text-black font-bold hover:bg-yellow-400 disabled:opacity-50"
+                            className="w-full bg-brand-yellow text-black font-bold hover:bg-yellow-400 disabled:opacity-50 h-12"
                             disabled={loading || !amount || !address || parseFloat(amount) <= 0}
                         >
                             {loading ? (
@@ -454,17 +469,18 @@ const WithdrawSheet = ({ open, onOpenChange }) => {
                         <Button 
                             variant="outline" 
                             onClick={() => onOpenChange(false)}
-                            className="w-full"
+                            className="w-full h-10"
                             disabled={loading}
                         >
                             Cancel
                         </Button>
                     </div>
-                </SheetFooter>
+                </div>
             </SheetContent>
         </Sheet>
     );
 };
+
 
 const HomePage = () => {
     const { user } = useTelegram();
