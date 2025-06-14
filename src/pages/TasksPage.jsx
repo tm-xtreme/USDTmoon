@@ -344,26 +344,21 @@ const TasksPage = () => {
         );
     }
 
-    // Filter tasks by status - using the mapped status for UI compatibility
+    // Filter tasks by status
     const availableTasks = tasks.filter(t => {
         const submission = gameData.userTasks?.[t.id];
         if (!submission) return true; // No submission = available
-        const mappedStatus = submission.status === 'approved' ? 'completed' : submission.status;
-        return !mappedStatus || mappedStatus === 'new' || mappedStatus === 'rejected';
+        return submission.status === 'new' || submission.status === 'rejected';
     });
 
     const pendingTasks = tasks.filter(t => {
         const submission = gameData.userTasks?.[t.id];
-        if (!submission) return false;
-        const mappedStatus = submission.status === 'approved' ? 'completed' : submission.status;
-        return mappedStatus === 'pending_approval' || mappedStatus === 'pending_claim';
+        return submission?.status === 'pending_approval';
     });
 
     const completedTasks = tasks.filter(t => {
         const submission = gameData.userTasks?.[t.id];
-        if (!submission) return false;
-        const mappedStatus = submission.status === 'approved' ? 'completed' : submission.status;
-        return mappedStatus === 'completed';
+        return submission?.status === 'approved';
     });
     
     return (
