@@ -9,19 +9,11 @@ import { addClaimTransaction, updateUserData } from '@/lib/firebaseService';
 import { Zap, TrendingUp, Clock, Coins } from 'lucide-react';
 
 const ClaimPage = () => {
-    const gameData = useGameData();
+    const { data, setData, saveData } = useGameData();
     const { toast } = useToast();
     const navigate = useNavigate();
     const [claiming, setClaiming] = useState(false);
     const [miningEffect, setMiningEffect] = useState(false);
-
-    // Debug logging
-    console.log('GameData hook result:', gameData);
-    console.log('Toast function:', toast);
-
-    // Safely extract data and setData
-    const data = gameData?.data;
-    const setData = gameData?.setData;
 
     // Mining effect animation
     useEffect(() => {
@@ -75,23 +67,6 @@ const ClaimPage = () => {
     const onClaimClick = async () => {
         if (claiming) return;
         
-        // Validate functions exist
-        if (typeof toast !== 'function') {
-            console.error('Toast function is not available');
-            alert('Error: Toast function not available');
-            return;
-        }
-
-        if (typeof setData !== 'function') {
-            console.error('SetData function is not available');
-            toast({
-                title: "Error",
-                description: "Data update function not available. Please refresh the page.",
-                variant: "destructive",
-            });
-            return;
-        }
-        
         // Check if there's anything to claim
         if (data.storageMined <= 0) {
             toast({
@@ -126,7 +101,7 @@ const ClaimPage = () => {
             const newLastStorageSync = Date.now();
             const newStorageFillTime = Date.now() + (data.storageCapacity / data.minerRate) * 60 * 60 * 1000;
 
-            // Update user data in Firebase
+            // Prepare update data
             const updateData = {
                 totalMined: newTotalMined,
                 storageMined: newStorageMined,
@@ -136,79 +111,42 @@ const ClaimPage = () => {
 
             console.log('Updating user data:', updateData);
             
-            // Check if updateUserData function exists
-            if (typeof updateUserData !== 'function') {
-                throw new Error('updateUserData function is not available');
-            }
-            
-            await updateUserData(data.id, updateData);
+            // Use the saveData function from the hook (which handles Firebase updates)
+            await saveData(updateData);
 
-            // Update local state - with additional safety check
-            try {
-                const updatedData = {
-                    ...data,
-                    ...updateData
-                };
-                console.log('Calling setData with:', updatedData);
-                setData(updatedData);
-            } catch (setDataError) {
-                console.error('Error calling setData:', setDataError);
-                // Continue with the process even if local state update fails
-            }
+            // Update local state immediately for better UX
+            setData(prevData => ({
+                ...prevData,
+                ...updateData
+            }));
 
             // Record transactions in Firestore
             try {
-                if (typeof addClaimTransaction === 'function') {
-                    await addClaimTransaction(data.id, claimAmount, claimFee);
-                    console.log('Transactions recorded successfully');
-                } else {
-                    console.error('addClaimTransaction function not available');
-                }
+                await addClaimTransaction(data.id, claimAmount, claimFee);
+                console.log('Transactions recorded successfully');
             } catch (transactionError) {
                 console.error('Error recording transactions:', transactionError);
                 // Don't fail the claim if transaction recording fails, just log it
                 console.log('Claim succeeded but transaction recording failed');
             }
             
-            // Success toast
-            try {
-                toast({
-                    title: "Claim Successful! 🎉",
-                    description: `Claimed ${claimAmount.toFixed(8)} USDT. Fee: ${claimFee.toFixed(8)} USDT. Net: +${(claimAmount - claimFee).toFixed(8)} USDT`,
-                });
-            } catch (toastError) {
-                console.error('Error showing success toast:', toastError);
-                alert(`Claim Successful! Claimed ${claimAmount.toFixed(8)} USDT. Fee: ${claimFee.toFixed(8)} USDT.`);
-            }
+            toast({
+                title: "Claim Successful! 🎉",
+                description: `Claimed ${claimAmount.toFixed(8)} USDT. Fee: ${claimFee.toFixed(8)} USDT. Net: +${(claimAmount - claimFee).toFixed(8)} USDT`,
+            });
             
             // Navigate back to home after a short delay
             setTimeout(() => {
-                try {
-                    navigate('/');
-                } catch (navError) {
-                    console.error('Navigation error:', navError);
-                    window.location.href = '/';
-                }
+                navigate('/');
             }, 2000);
             
         } catch (error) {
             console.error('Error during claim:', error);
-            console.error('Error details:', {
-                message: error.message,
-                stack: error.stack,
-                name: error.name
+            toast({
+                title: "Claim Failed",
+                description: `Error: ${error?.message || 'An unexpected error occurred. Please try again.'}`,
+                variant: "destructive",
             });
-            
-            try {
-                toast({
-                    title: "Claim Failed",
-                    description: `Error: ${error.message || 'An unexpected error occurred. Please try again.'}`,
-                    variant: "destructive",
-                });
-            } catch (toastError) {
-                console.error('Error showing error toast:', toastError);
-                alert(`Claim Failed: ${error.message || 'An unexpected error occurred. Please try again.'}`);
-            }
         } finally {
             setClaiming(false);
         }
@@ -218,17 +156,6 @@ const ClaimPage = () => {
 
     return (
         <div className="flex flex-col items-center justify-center p-4 text-center h-full bg-gradient-to-b from-blue-50 to-white">
-            {/* Debug Info - Remove in production */}
-            {process.env.NODE_ENV === 'development' && (
-                <div className="mb-4 p-2 bg-gray-100 rounded text-xs max-w-sm">
-                    <p>Debug Info:</p>
-                    <p>Data available: {data ? 'Yes' : 'No'}</p>
-                    <p>SetData function: {typeof setData}</p>
-                    <p>Toast function: {typeof toast}</p>
-                    <p>User ID: {data?.id}</p>
-                </div>
-            )}
-
             {/* Mining Status Header */}
             <div className="mb-6">
                 <div className="flex items-center justify-center space-x-2 mb-2">
@@ -374,3 +301,4 @@ const ClaimPage = () => {
 };
 
 export default ClaimPage;
+                                           
