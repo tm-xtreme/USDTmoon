@@ -31,39 +31,26 @@ const TaskItem = ({ task, userSubmission }) => {
         ? { 
             ...userSubmission, 
             status: mapTaskStatus(userSubmission.status),
-            rejectionReason: userSubmission.rejectionReason
+            rejectionReason: userSubmission.rejectionReason || null
           }
         : { status: 'new' };
     
     const IconComponent = Icons[task.icon] || Icons['Gift'];
 
-    // Debug logging
-    useEffect(() => {
-        console.log('Task:', task.id, 'UserSubmission:', userSubmission, 'MappedStatus:', userTask.status);
-    }, [task.id, userSubmission, userTask.status]);
-
     const getButtonInfo = () => {
         switch (userTask.status) {
             case 'new':
                 if (task.type === 'auto') {
-                    if (!hasVisited) {
-                        return { text: 'Join', disabled: false, color: 'bg-brand-yellow text-black' };
-                    } else {
-                        return { text: 'Claim', disabled: false, color: 'bg-green-500 text-white' };
-                    }
+                    return hasVisited ? { text: 'Claim', disabled: false, color: 'bg-green-500 text-white' } : { text: 'Join', disabled: false, color: 'bg-brand-yellow text-black' };
                 } else {
-                    if (!hasVisited) {
-                        return { text: 'Start', disabled: false, color: 'bg-brand-yellow text-black' };
-                    } else {
-                        return { text: 'Request', disabled: false, color: 'bg-blue-500 text-white' };
-                    }
+                    return hasVisited ? { text: 'Request', disabled: false, color: 'bg-blue-500 text-white' } : { text: 'Start', disabled: false, color: 'bg-brand-yellow text-black' };
                 }
             case 'pending_claim':
                 return { text: 'Claim', disabled: false, color: 'bg-green-500 text-white' };
             case 'pending_approval':
                 return { text: 'Pending', disabled: true, color: 'bg-orange-400 text-white' };
             case 'completed':
-                return { text: 'Done', disabled: true, color: 'bg-green-600 text-white', icon: <Icons.Check className="h-4 w-4"/> };
+                return { text: 'Done', disabled: true, color: 'bg-green-600 text-white' };
             case 'rejected':
                 return { text: 'Retry', disabled: false, color: 'bg-red-500 text-white' };
             default:
@@ -79,9 +66,7 @@ const TaskItem = ({ task, userSubmission }) => {
         try {
             if (userTask.status === 'new') {
                 if (task.type === 'auto') {
-                    // Auto task (Telegram) flow
                     if (!hasVisited) {
-                        // First click: Open channel and mark as visited
                         if (task.target && (task.target.includes('t.me') || task.target.startsWith('@'))) {
                             const channelUrl = task.target.startsWith('@') 
                                 ? `https://t.me/${task.target.replace('@', '')}` 
@@ -102,17 +87,14 @@ const TaskItem = ({ task, userSubmission }) => {
                             });
                         }
                     } else {
-                        // Second click: Use hook's handleTaskAction for verification
                         const result = await handleTaskAction(task);
-                        
                         if (result) {
                             toast({
                                 title: 'Task Completed! 🎉',
                                 description: `You earned ${task.reward} USDT!`,
                             });
-                            setHasVisited(false); // Reset for future use
+                            setHasVisited(false);
                         } else {
-                            // Reset to initial state if verification failed
                             setHasVisited(false);
                             toast({
                                 title: 'Verification Failed',
@@ -122,9 +104,7 @@ const TaskItem = ({ task, userSubmission }) => {
                         }
                     }
                 } else {
-                    // Manual task flow
                     if (!hasVisited) {
-                        // First click: Open link and mark as visited
                         if (task.target && (task.target.startsWith('http') || task.target.startsWith('https'))) {
                             window.open(task.target, '_blank');
                         }
@@ -135,15 +115,13 @@ const TaskItem = ({ task, userSubmission }) => {
                             description: 'Please complete the task and then click "Request" for verification.',
                         });
                     } else {
-                        // Second click: Submit for admin approval
                         const result = await handleTaskAction(task);
-                        
                         if (result) {
                             toast({
                                 title: "Task Submitted! 📋",
                                 description: "Your submission is pending admin review.",
                             });
-                            setHasVisited(false); // Reset for future use
+                            setHasVisited(false);
                         } else {
                             setHasVisited(false);
                             toast({
@@ -155,7 +133,6 @@ const TaskItem = ({ task, userSubmission }) => {
                     }
                 }
             } else if (userTask.status === 'rejected') {
-                // Reset and try again - for rejected tasks, just reset the local state
                 setHasVisited(false);
                 toast({
                     title: "Try Again",
@@ -164,11 +141,9 @@ const TaskItem = ({ task, userSubmission }) => {
             }
         } catch (error) {
             console.error('Error handling task action:', error);
-            
             if (userTask.status === 'new') {
                 setHasVisited(false);
             }
-            
             toast({
                 title: "Error",
                 description: "Something went wrong. Please try again.",
@@ -185,12 +160,9 @@ const TaskItem = ({ task, userSubmission }) => {
         <Card className="bg-white rounded-2xl shadow-md border border-gray-100 hover:shadow-lg transition-all duration-300">
             <CardContent className="p-4">
                 <div className="flex items-start space-x-4">
-                    {/* Icon */}
                     <div className="flex-shrink-0 p-3 bg-brand-yellow/20 rounded-xl">
                         <IconComponent className="h-6 w-6 text-brand-yellow" />
                     </div>
-                    
-                    {/* Content */}
                     <div className="flex-1 min-w-0">
                         <div className="flex items-start justify-between mb-2">
                             <h3 className="font-bold text-lg text-gray-900 leading-tight">{task.name}</h3>
@@ -207,10 +179,7 @@ const TaskItem = ({ task, userSubmission }) => {
                                 )}
                             </div>
                         </div>
-                        
                         <p className="text-sm text-gray-600 mb-3 leading-relaxed">{task.description}</p>
-                        
-                        {/* Reward and Status */}
                         <div className="flex items-center justify-between">
                             <div className="flex items-center space-x-2">
                                 <div className="flex items-center space-x-1">
@@ -218,7 +187,6 @@ const TaskItem = ({ task, userSubmission }) => {
                                     <span className="text-sm font-bold text-green-600">+{task.reward} USDT</span>
                                 </div>
                             </div>
-                            
                             <Button 
                                 onClick={handleAction} 
                                 disabled={disabled || processing} 
@@ -240,8 +208,6 @@ const TaskItem = ({ task, userSubmission }) => {
                                 )}
                             </Button>
                         </div>
-                        
-                        {/* Status Messages */}
                         {userTask.status === 'pending_approval' && (
                             <div className="mt-3 p-2 bg-orange-50 border border-orange-200 rounded-lg">
                                 <p className="text-xs text-orange-700 flex items-center">
@@ -250,7 +216,6 @@ const TaskItem = ({ task, userSubmission }) => {
                                 </p>
                             </div>
                         )}
-                        
                         {userTask.status === 'rejected' && userTask.rejectionReason && (
                             <div className="mt-3 p-2 bg-red-50 border border-red-200 rounded-lg">
                                 <p className="text-xs text-red-700 flex items-center">
@@ -259,22 +224,14 @@ const TaskItem = ({ task, userSubmission }) => {
                                 </p>
                             </div>
                         )}
-                        
                         {userTask.status === 'completed' && (
                             <div className="mt-3 p-2 bg-green-50 border border-green-200 rounded-lg">
                                 <p className="text-xs text-green-700 flex items-center">
                                     <Icons.CheckCircle className="h-3 w-3 mr-1" />
                                     Task completed successfully
-                                    {userSubmission?.approvedAt && (
-                                        <span className="ml-2 text-xs text-gray-500">
-                                            • {new Date(userSubmission.approvedAt.toDate()).toLocaleDateString()}
-                                        </span>
-                                    )}
                                 </p>
                             </div>
                         )}
-
-                        {/* Instructions for next step */}
                         {userTask.status === 'new' && hasVisited && (
                             <div className="mt-3 p-2 bg-blue-50 border border-blue-200 rounded-lg">
                                 <p className="text-xs text-blue-700 flex items-center">
@@ -344,46 +301,22 @@ const TasksPage = () => {
     }
 
     // Create a map of taskId to submission for easy lookup
-    const submissionMap = {};
-    if (gameData.userTasks && Array.isArray(gameData.userTasks)) {
-        gameData.userTasks.forEach(submission => {
-            submissionMap[submission.taskId] = submission;
-        });
-    }
-
-    console.log('GameData userTasks:', gameData.userTasks);
-    console.log('Submission Map:', submissionMap);
+    const submissionMap = gameData.userTasks || {};
 
     // Filter tasks by status with error handling
     const availableTasks = tasks.filter(t => {
-        try {
-            const submission = submissionMap[t.id];
-            if (!submission) return true; // No submission = available
-            return submission.status === 'rejected';
-        } catch (error) {
-            console.error('Error filtering available tasks:', error);
-            return true; // Default to available if error
-        }
+        const submission = submissionMap[t.id];
+        return !submission || submission.status === 'rejected'; // No submission = available
     });
-    
+
     const pendingTasks = tasks.filter(t => {
-        try {
-            const submission = submissionMap[t.id];
-            return submission?.status === 'pending_approval';
-        } catch (error) {
-            console.error('Error filtering pending tasks:', error);
-            return false;
-        }
+        const submission = submissionMap[t.id];
+        return submission?.status === 'pending_approval';
     });
 
     const completedTasks = tasks.filter(t => {
-        try {
-            const submission = submissionMap[t.id];
-            return submission?.status === 'approved';
-        } catch (error) {
-            console.error('Error filtering completed tasks:', error);
-            return false;
-        }
+        const submission = submissionMap[t.id];
+        return submission?.status === 'approved';
     });
     
     return (
@@ -504,4 +437,3 @@ const TasksPage = () => {
 };
 
 export default TasksPage;
-                                
