@@ -12,7 +12,7 @@ import { useNavigate } from 'react-router-dom';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from '@/components/ui/sheet';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { getUserTransactions, createWithdrawalRequest } from '@/lib/firebaseService';
+import { getUserTransactions } from '@/lib/firebaseService';
 
 const TransactionHistory = ({ transactions, loading, error, currentPage, totalPages, onPageChange, onRefresh }) => {
     if (loading) {
@@ -248,7 +248,7 @@ const TransactionHistory = ({ transactions, loading, error, currentPage, totalPa
 
 const WithdrawSheet = ({ open, onOpenChange }) => {
     const { toast } = useToast();
-    const { data, updateUserBalance } = useGameData();
+    const { data, requestWithdrawal } = useGameData(); // Use the hook's requestWithdrawal function
     const { user } = useTelegram();
     const [amount, setAmount] = useState('');
     const [address, setAddress] = useState('');
@@ -256,10 +256,21 @@ const WithdrawSheet = ({ open, onOpenChange }) => {
 
     const handleSubmit = async () => {
         const numAmount = parseFloat(amount);
+        
+        // Validation
         if (isNaN(numAmount) || numAmount <= 0) {
             toast({ 
                 title: "Invalid Amount", 
                 description: "Please enter a valid positive amount.", 
+                variant: "destructive" 
+            });
+            return;
+        }
+        
+        if (numAmount < 0.000001) {
+            toast({ 
+                title: "Amount Too Small", 
+                description: "Minimum withdrawal amount is 0.000001 USDT.", 
                 variant: "destructive" 
             });
             return;
@@ -274,70 +285,107 @@ const WithdrawSheet = ({ open, onOpenChange }) => {
             return;
         }
         
-        if (data.totalMined < numAmount) {
+        if (address.trim().length < 10) {
+            toast({ 
+                title: "Invalid Address", 
+                description: "Wallet address seems too short. Please check and try again.", 
+                variant: "destructive" 
+            });
+            return;
+        }
+        
+        if (!data || data.totalMined < numAmount) {
             toast({ 
                 title: "Insufficient Balance", 
-                description: "You don't have enough USDT to withdraw.", 
+                description: `You don't have enough USDT to withdraw. Available: ${data?.totalMined?.toFixed(8) || '0.00000000'} USDT`, 
                 variant: "destructive" 
             });
             return;
         }
 
         setLoading(true);
+        
         try {
-            await updateUserBalance(-numAmount);
-            
-            await createWithdrawalRequest(
-                data.id, 
-                numAmount, 
-                address, 
-                user?.username || user?.first_name || 'Unknown'
-            );
-            
-            toast({ 
-                title: "Withdrawal Requested", 
-                description: "Your request is pending admin approval." 
+            console.log('Submitting withdrawal request:', {
+                amount: numAmount,
+                address: address.trim(),
+                userId: data.id,
+                username: user?.username || user?.first_name || 'Unknown'
             });
+
+            // Use the requestWithdrawal function from useGameData hook
+            const result = await requestWithdrawal(numAmount, address.trim());
             
-            setAmount('');
-            setAddress('');
-            onOpenChange(false);
+            if (result.success) {
+                toast({ 
+                    title: "Withdrawal Requested! 🎉", 
+                    description: "Your withdrawal request has been submitted for admin approval. You'll be notified once processed." 
+                });
+                
+                // Clear form and close sheet
+                setAmount('');
+                setAddress('');
+                onOpenChange(false);
+            } else {
+                toast({ 
+                    title: "Withdrawal Failed", 
+                    description: result.reason || "Failed to submit withdrawal request. Please try again.", 
+                    variant: "destructive" 
+                });
+            }
         } catch (error) {
             console.error('Withdrawal error:', error);
             toast({ 
                 title: "Withdrawal Failed", 
-                description: "Something went wrong. Please try again.", 
+                description: "An unexpected error occurred. Please try again.", 
                 variant: "destructive" 
             });
         } finally {
             setLoading(false);
         }
     };
+
+    // Reset form when sheet closes
+    useEffect(() => {
+        if (!open) {
+            setAmount('');
+            setAddress('');
+            setLoading(false);
+        }
+    }, [open]);
     
     return (
         <Sheet open={open} onOpenChange={onOpenChange}>
-            <SheetContent side="bottom" className="rounded-t-2xl bg-brand-bg text-brand-text p-6 h-auto max-h-[90vh] flex flex-col">
+            <SheetContent side="bottom" className="rounded-t-2xl bg-white text-brand-text p-6 h-auto max-h-[90vh] flex flex-col">
                 <SheetHeader className="text-center mb-4">
                     <SheetTitle className="text-2xl font-bold">Withdraw USDT</SheetTitle>
-                    <SheetDescription>Enter amount and BEP20 address.</SheetDescription>
+                    <SheetDescription>Enter withdrawal amount and your BEP20 wallet address</SheetDescription>
                 </SheetHeader>
+                
                 <div className="space-y-4 py-4">
                     <div>
-                        <Label htmlFor="withdraw-amount">Amount</Label>
+                        <Label htmlFor="withdraw-amount" className="text-sm font-semibold">Amount (USDT)</Label>
                         <Input 
                             id="withdraw-amount" 
                             type="number" 
-                            placeholder="0.00" 
+                            placeholder="0.000000" 
                             value={amount} 
                             onChange={e => setAmount(e.target.value)}
                             disabled={loading}
+                            step="0.000001"
+                            min="0.000001"
+                            className="mt-1"
                         />
                         <p className="text-xs text-gray-500 mt-1">
                             Available: {data?.totalMined?.toFixed(8) || '0.00000000'} USDT
                         </p>
+                        <p className="text-xs text-gray-400">
+                            Minimum withdrawal: 0.000001 USDT
+                        </p>
                     </div>
+                    
                     <div>
-                        <Label htmlFor="withdraw-address">Wallet Address (BEP20)</Label>
+                        <Label htmlFor="withdraw-address" className="text-sm font-semibold">Wallet Address (BEP20)</Label>
                         <Input 
                             id="withdraw-address" 
                             type="text" 
@@ -345,17 +393,73 @@ const WithdrawSheet = ({ open, onOpenChange }) => {
                             value={address} 
                             onChange={e => setAddress(e.target.value)}
                             disabled={loading}
+                            className="mt-1"
                         />
+                        <p className="text-xs text-gray-400 mt-1">
+                            Enter your BEP20 (BSC) wallet address for USDT withdrawal
+                        </p>
                     </div>
+
+                    {/* Withdrawal Info */}
+                    <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+                        <h4 className="text-sm font-semibold text-yellow-800 mb-2">⚠️ Important Information</h4>
+                        <ul className="text-xs text-yellow-700 space-y-1">
+                            <li>• Withdrawals are processed manually by admin</li>
+                            <li>• Processing time: 1-24 hours</li>
+                            <li>• Only BEP20 (BSC) USDT addresses supported</li>
+                            <li>• Double-check your wallet address</li>
+                            <li>• You'll receive a notification when processed</li>
+                        </ul>
+                    </div>
+
+                    {/* Summary */}
+                    {amount && parseFloat(amount) > 0 && (
+                        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                            <h4 className="text-sm font-semibold text-blue-800 mb-2">Withdrawal Summary</h4>
+                            <div className="space-y-1 text-sm">
+                                <div className="flex justify-between">
+                                    <span className="text-blue-700">Amount:</span>
+                                    <span className="font-semibold text-blue-900">{parseFloat(amount).toFixed(8)} USDT</span>
+                                </div>
+                                <div className="flex justify-between">
+                                    <span className="text-blue-700">Network:</span>
+                                    <span className="font-semibold text-blue-900">BEP20 (BSC)</span>
+                                </div>
+                                <div className="flex justify-between">
+                                    <span className="text-blue-700">Status:</span>
+                                    <span className="font-semibold text-orange-600">Pending Approval</span>
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </div>
-                <SheetFooter>
-                    <Button 
-                        onClick={handleSubmit} 
-                        className="w-full bg-brand-yellow text-black font-bold"
-                        disabled={loading}
-                    >
-                        {loading ? 'Processing...' : 'Confirm Withdrawal'}
-                    </Button>
+                
+                <SheetFooter className="mt-auto">
+                    <div className="w-full space-y-2">
+                        <Button 
+                            onClick={handleSubmit} 
+                            className="w-full bg-brand-yellow text-black font-bold hover:bg-yellow-400 disabled:opacity-50"
+                            disabled={loading || !amount || !address || parseFloat(amount) <= 0}
+                        >
+                            {loading ? (
+                                <div className="flex items-center space-x-2">
+                                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-black"></div>
+                                    <span>Processing...</span>
+                                </div>
+                            ) : (
+                                'Submit Withdrawal Request'
+                            )}
+                        </Button>
+                        
+                        <Button 
+                            variant="outline" 
+                            onClick={() => onOpenChange(false)}
+                            className="w-full"
+                            disabled={loading}
+                        >
+                            Cancel
+                        </Button>
+                    </div>
                 </SheetFooter>
             </SheetContent>
         </Sheet>
@@ -537,7 +641,7 @@ const HomePage = () => {
 
     if (!isInitialized || !data) {
         return (
-            <div className="text-center p-10">
+            <div className="text-center p-10 bg-gradient-to-b from-yellow-50 to-orange-50 min-h-screen">
                 <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-brand-yellow mx-auto"></div>
                 <p className="mt-4 text-brand-text">Loading...</p>
             </div>
@@ -547,9 +651,9 @@ const HomePage = () => {
     const isStorageFull = data.storageMined >= data.storageCapacity;
 
     return (
-        <div className="p-4 space-y-4">
+        <div className="p-4 space-y-4 bg-gradient-to-b from-yellow-50 to-orange-50 min-h-screen">
             {/* User Profile Card */}
-            <Card className="bg-white rounded-2xl shadow-md p-4">
+            <Card className="bg-white rounded-2xl shadow-md p-4 border border-gray-100">
                 <CardContent className="flex items-center space-x-3 p-0">
                     <Avatar className="h-12 w-12">
                         <AvatarImage src={user?.photo_url} alt={user?.username} />
@@ -563,14 +667,14 @@ const HomePage = () => {
             </Card>
 
             {/* Balance Card - Navigate to Claim Page */}
-            <Card className="bg-white rounded-2xl shadow-md p-4 text-center cursor-pointer" onClick={() => navigate('/claim')}>
+            <Card className="bg-white rounded-2xl shadow-md p-4 text-center cursor-pointer border border-gray-100" onClick={() => navigate('/claim')}>
                 <CardContent className="p-0">
                     <p className="text-sm text-gray-500">Total Balance</p>
                     <p className="text-4xl font-bold my-1">{data.totalMined.toFixed(8)}</p>
                     <p className="text-xs text-gray-400 mb-3">USDT</p>
                     <div className="flex space-x-2 justify-center mt-2">
                         <Button 
-                            className="bg-brand-yellow text-black font-bold flex-1" 
+                            className="bg-brand-yellow text-black font-bold flex-1 hover:bg-yellow-400" 
                             onClick={(e) => {
                                 e.stopPropagation(); 
                                 navigate('/deposit');
@@ -579,7 +683,7 @@ const HomePage = () => {
                             Deposit
                         </Button>
                         <Button 
-                            className="bg-gray-200 text-gray-700 font-bold flex-1" 
+                            className="bg-gray-200 text-gray-700 font-bold flex-1 hover:bg-gray-300" 
                             onClick={(e) => {
                                 e.stopPropagation(); 
                                 setIsWithdrawSheetOpen(true);
@@ -613,7 +717,7 @@ const HomePage = () => {
                 <TabsContent value="tokens">
                     <div className="grid grid-cols-2 gap-4 mt-2">
                         {/* USDT Balance Card - Navigate to Claim Page */}
-                        <Card className="bg-white rounded-2xl shadow-md p-4 cursor-pointer" onClick={() => navigate('/claim')}>
+                        <Card className="bg-white rounded-2xl shadow-md p-4 cursor-pointer border border-gray-100" onClick={() => navigate('/claim')}>
                             <CardContent className="p-0">
                                 <p className="font-bold">USDT Balance</p>
                                 <p className="text-2xl font-bold">{data.totalMined.toFixed(8)}</p>
@@ -626,7 +730,7 @@ const HomePage = () => {
                         </Card>
                         
                         {/* Storage Card - Navigate to Claim Page */}
-                        <Card className="bg-white rounded-2xl shadow-md p-4 cursor-pointer" onClick={() => navigate('/claim')}>
+                        <Card className="bg-white rounded-2xl shadow-md p-4 cursor-pointer border border-gray-100" onClick={() => navigate('/claim')}>
                             <CardContent className="p-0 flex flex-col justify-between h-full">
                                 <div>
                                     <p className="font-bold">Storage</p>
@@ -653,7 +757,7 @@ const HomePage = () => {
                 </TabsContent>
                 
                 <TabsContent value="transactions">
-                    <Card className="bg-white rounded-2xl shadow-md p-4 mt-2">
+                    <Card className="bg-white rounded-2xl shadow-md p-4 mt-2 border border-gray-100">
                         <CardContent className="p-0">
                             <div className="flex items-center justify-between mb-4">
                                 <div>
@@ -697,7 +801,7 @@ const HomePage = () => {
             
             {/* Daily Earn Button */}
             <Button 
-                className="w-full h-14 bg-brand-yellow text-black font-bold text-lg flex justify-between items-center rounded-xl" 
+                className="w-full h-14 bg-brand-yellow text-black font-bold text-lg flex justify-between items-center rounded-xl hover:bg-yellow-400" 
                 onClick={() => navigate('/boost')}
             >
                 <span>EARN 0.1 USDT DAILY</span>
@@ -714,4 +818,3 @@ const HomePage = () => {
 };
 
 export default HomePage;
-                    
