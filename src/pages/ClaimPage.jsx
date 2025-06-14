@@ -4,10 +4,10 @@ import { useToast } from '@/components/ui/use-toast';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { useNavigate } from 'react-router-dom';
-import { addClaimTransaction } from '@/lib/firebaseService';
+import { addClaimTransaction, updateUserData } from '@/lib/firebaseService';
 
 const ClaimPage = () => {
-    const { data, handleClaimStorage } = useGameData();
+    const { data, setData } = useGameData();
     const { toast } = useToast();
     const navigate = useNavigate();
     const [claiming, setClaiming] = useState(false);
@@ -44,7 +44,7 @@ const ClaimPage = () => {
     };
 
     const claimFee = calculateClaimFee(data.storageMined);
-    const netClaimAmount = Math.max(0, data.storageMined - claimFee);
+    const claimAmount = data.storageMined;
     
     const onClaimClick = async () => {
         if (claiming) return;
@@ -63,7 +63,7 @@ const ClaimPage = () => {
         if (data.totalMined < claimFee) {
             toast({
                 title: "Insufficient Balance",
-                description: `You need at least ${claimFee.toFixed(8)} USDT to pay the claim fee.`,
+                description: `You need at least ${claimFee.toFixed(8)} USDT to pay the claim fee. Current balance: ${data.totalMined.toFixed(8)} USDT`,
                 variant: "destructive",
             });
             return;
@@ -75,43 +75,57 @@ const ClaimPage = () => {
             console.log('Starting claim process...');
             console.log('Storage mined:', data.storageMined);
             console.log('Claim fee:', claimFee);
-            console.log('Net claim amount:', netClaimAmount);
+            console.log('Current balance:', data.totalMined);
             
-            // Call the claim function from useGameData
-            const result = handleClaimStorage();
-            console.log('Claim result:', result);
-            
-            if (result.success) {
-                // Record transactions in Firestore
-                try {
-                    await addClaimTransaction(data.id, netClaimAmount, claimFee);
-                    console.log('Transactions recorded successfully');
-                } catch (transactionError) {
-                    console.error('Error recording transactions:', transactionError);
-                    // Don't fail the claim if transaction recording fails
-                }
-                
-                toast({
-                    title: "Claim Successful!",
-                    description: `Claimed ${netClaimAmount.toFixed(8)} USDT (Fee: ${claimFee.toFixed(8)} USDT)`,
-                });
-                
-                // Navigate back to home after a short delay
-                setTimeout(() => {
-                    navigate('/');
-                }, 1500);
-            } else {
-                toast({
-                    title: "Claim Failed",
-                    description: result.reason || "Something went wrong during the claim process.",
-                    variant: "destructive",
-                });
+            // Calculate new balances
+            const newTotalMined = data.totalMined + claimAmount - claimFee; // Add claim amount, subtract fee
+            const newStorageMined = 0; // Reset storage
+            const newLastStorageSync = Date.now();
+            const newStorageFillTime = Date.now() + (data.storageCapacity / data.minerRate) * 60 * 60 * 1000;
+
+            // Update user data in Firebase
+            const updateData = {
+                totalMined: newTotalMined,
+                storageMined: newStorageMined,
+                lastStorageSync: newLastStorageSync,
+                storageFillTime: newStorageFillTime
+            };
+
+            console.log('Updating user data:', updateData);
+            await updateUserData(data.id, updateData);
+
+            // Update local state
+            const updatedData = {
+                ...data,
+                ...updateData
+            };
+            setData(updatedData);
+
+            // Record transactions in Firestore
+            try {
+                await addClaimTransaction(data.id, claimAmount, claimFee);
+                console.log('Transactions recorded successfully');
+            } catch (transactionError) {
+                console.error('Error recording transactions:', transactionError);
+                // Don't fail the claim if transaction recording fails, just log it
+                console.log('Claim succeeded but transaction recording failed');
             }
+            
+            toast({
+                title: "Claim Successful!",
+                description: `Claimed ${claimAmount.toFixed(8)} USDT. Fee: ${claimFee.toFixed(8)} USDT. Net: +${(claimAmount - claimFee).toFixed(8)} USDT`,
+            });
+            
+            // Navigate back to home after a short delay
+            setTimeout(() => {
+                navigate('/');
+            }, 2000);
+            
         } catch (error) {
             console.error('Error during claim:', error);
             toast({
                 title: "Claim Failed",
-                description: "An unexpected error occurred. Please try again.",
+                description: `Error: ${error.message || 'An unexpected error occurred. Please try again.'}`,
                 variant: "destructive",
             });
         } finally {
@@ -163,36 +177,48 @@ const ClaimPage = () => {
                 <div className="flex justify-between text-sm">
                     <span>Claim amount</span>
                     <span className="font-bold text-green-600">
-                        +{data.storageMined.toFixed(8)} USDT
+                        +{claimAmount.toFixed(8)} USDT
                     </span>
                 </div>
                 <div className="flex justify-between text-sm">
-                    <span>Claim fee ({(calculateClaimFee(data.storageMined) / Math.max(data.storageMined, 0.000001) * 100).toFixed(2)}%)</span>
+                    <span>Claim fee ({claimAmount > 0 ? (claimFee / claimAmount * 100).toFixed(2) : '0.00'}%)</span>
                     <span className="font-bold text-red-600">
                         -{claimFee.toFixed(8)} USDT
                     </span>
                 </div>
                 <div className="flex justify-between text-sm border-t pt-2">
-                    <span className="font-bold">Net amount</span>
+                    <span className="font-bold">Net gain</span>
                     <span className="font-bold text-blue-600">
-                        +{netClaimAmount.toFixed(8)} USDT
+                        +{Math.max(0, claimAmount - claimFee).toFixed(8)} USDT
+                    </span>
+                </div>
+                <div className="flex justify-between text-sm">
+                    <span>Current balance</span>
+                    <span className="font-bold">
+                        {data.totalMined.toFixed(8)} USDT
+                    </span>
+                </div>
+                <div className="flex justify-between text-sm">
+                    <span>Balance after claim</span>
+                    <span className="font-bold text-green-600">
+                        {(data.totalMined + claimAmount - claimFee).toFixed(8)} USDT
                     </span>
                 </div>
             </div>
             
             {!canClaim && (
-                <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg max-w-sm">
                     <p className="text-sm text-yellow-800">
                         {data.storageMined <= 0 
                             ? "Storage is empty. Wait for it to fill up."
-                            : `Insufficient balance to pay claim fee. Need ${claimFee.toFixed(8)} USDT.`
+                            : `Insufficient balance to pay claim fee. Need ${claimFee.toFixed(8)} USDT, but you have ${data.totalMined.toFixed(8)} USDT.`
                         }
                     </p>
                 </div>
             )}
             
             <p className="text-xs text-gray-500 mt-4 max-w-sm">
-                Claim fee is calculated as 0.5% of claimed amount and will be deducted from your main balance.
+                Claim fee is calculated as 0.5% of claimed amount (min: 0.000001, max: 0.00001 USDT) and will be deducted from your balance.
                 Both claim and fee will be recorded as separate transactions.
             </p>
         </div>
