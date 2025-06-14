@@ -14,12 +14,22 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { getUserTransactions, createWithdrawalRequest } from '@/lib/firebaseService';
 
-const TransactionHistory = ({ transactions, loading }) => {
+const TransactionHistory = ({ transactions, loading, error }) => {
     if (loading) {
         return (
             <div className="text-center py-8">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-yellow mx-auto"></div>
                 <p className="text-gray-500 mt-2">Loading transactions...</p>
+            </div>
+        );
+    }
+
+    if (error) {
+        return (
+            <div className="text-center py-8 text-red-500">
+                <Database className="mx-auto h-12 w-12 text-red-300 mb-4" />
+                <p>Failed to load transactions</p>
+                <p className="text-sm text-gray-500">{error}</p>
             </div>
         );
     }
@@ -322,23 +332,25 @@ const HomePage = () => {
     const [isWithdrawSheetOpen, setIsWithdrawSheetOpen] = useState(false);
     const [transactions, setTransactions] = useState([]);
     const [transactionsLoading, setTransactionsLoading] = useState(false);
+    const [transactionError, setTransactionError] = useState(null);
 
     // Load user transactions from Firestore
     useEffect(() => {
         const loadTransactions = async () => {
             if (!data?.id) {
-                console.log('No user ID available');
+                console.log('No user ID available for transactions');
                 return;
             }
             
             try {
                 setTransactionsLoading(true);
+                setTransactionError(null);
                 console.log('Loading transactions for user ID:', data.id);
                 
                 const userTransactions = await getUserTransactions(data.id, 20);
                 console.log('Raw transactions from Firebase:', userTransactions);
                 
-                if (userTransactions && userTransactions.length > 0) {
+                if (userTransactions && Array.isArray(userTransactions) && userTransactions.length > 0) {
                     // Sort transactions by creation date (newest first)
                     const sortedTransactions = userTransactions.sort((a, b) => {
                         let dateA, dateB;
@@ -376,10 +388,11 @@ const HomePage = () => {
             } catch (error) {
                 console.error('Error loading transactions:', error);
                 setTransactions([]);
-                toast({
-                    title: "Error",
-                    description: "Failed to load transaction history.",
-                    variant: "destructive"
+                setTransactionError(error.message || 'Failed to load transactions');
+                console.log('Transaction error details:', {
+                    code: error.code,
+                    message: error.message,
+                    userId: data.id
                 });
             } finally {
                 setTransactionsLoading(false);
@@ -389,18 +402,28 @@ const HomePage = () => {
         if (isInitialized && data?.id) {
             loadTransactions();
         }
-    }, [data?.id, isInitialized, toast]);
+    }, [data?.id, isInitialized]);
 
     // Refresh transactions function
     const refreshTransactions = async () => {
-        if (!data?.id) return;
+        if (!data?.id) {
+            toast({
+                title: "Error",
+                description: "No user ID available",
+                variant: "destructive"
+            });
+            return;
+        }
         
         setTransactionsLoading(true);
+        setTransactionError(null);
+        
         try {
             console.log('Refreshing transactions for user:', data.id);
             const userTransactions = await getUserTransactions(data.id, 20);
+            console.log('Refreshed transactions:', userTransactions);
             
-            if (userTransactions && userTransactions.length > 0) {
+            if (userTransactions && Array.isArray(userTransactions) && userTransactions.length > 0) {
                 const sortedTransactions = userTransactions.sort((a, b) => {
                     let dateA, dateB;
                     
@@ -427,19 +450,24 @@ const HomePage = () => {
                     return dateB - dateA;
                 });
                 setTransactions(sortedTransactions);
+                
+                toast({
+                    title: "Success",
+                    description: `Loaded ${sortedTransactions.length} transactions`,
+                });
             } else {
                 setTransactions([]);
+                toast({
+                    title: "No Transactions",
+                    description: "No transaction history found",
+                });
             }
-            
-            toast({
-                title: "Refreshed",
-                description: "Transaction history updated.",
-            });
         } catch (error) {
             console.error('Error refreshing transactions:', error);
+            setTransactionError(error.message || 'Failed to refresh transactions');
             toast({
                 title: "Error",
-                description: "Failed to refresh transactions.",
+                description: `Failed to refresh transactions: ${error.message}`,
                 variant: "destructive"
             });
         } finally {
@@ -470,6 +498,8 @@ const HomePage = () => {
                     <div>
                         <p className="font-bold">{`${user?.first_name || 'User'} ${user?.last_name || ''}`}</p>
                         <p className="text-sm text-gray-500">@{user?.username || 'telegram_user'}</p>
+                        {/* Debug info - remove in production */}
+                        <p className="text-xs text-gray-400">ID: {data?.id}</p>
                     </div>
                 </CardContent>
             </Card>
@@ -512,6 +542,11 @@ const HomePage = () => {
                         {transactions.length > 0 && (
                             <span className="ml-1 bg-brand-yellow text-black text-xs px-2 py-1 rounded-full">
                                 {transactions.length}
+                            </span>
+                        )}
+                        {transactionError && (
+                            <span className="ml-1 bg-red-500 text-white text-xs px-2 py-1 rounded-full">
+                                !
                             </span>
                         )}
                     </TabsTrigger>
@@ -564,20 +599,38 @@ const HomePage = () => {
                         <CardContent className="p-0">
                             <div className="flex items-center justify-between mb-4">
                                 <h3 className="font-bold text-lg">Transaction History</h3>
-                                <Button 
-                                    variant="outline" 
-                                    size="sm"
-                                    onClick={refreshTransactions}
-                                    disabled={transactionsLoading}
-                                    className="flex items-center space-x-2"
-                                >
-                                    <RefreshCw className={`h-4 w-4 ${transactionsLoading ? 'animate-spin' : ''}`} />
-                                    <span>{transactionsLoading ? 'Loading...' : 'Refresh'}</span>
-                                </Button>
+                                <div className="flex items-center space-x-2">
+                                    {transactionError && (
+                                        <span className="text-xs text-red-500">Error</span>
+                                    )}
+                                    <Button 
+                                        variant="outline" 
+                                        size="sm"
+                                        onClick={refreshTransactions}
+                                        disabled={transactionsLoading}
+                                        className="flex items-center space-x-2"
+                                    >
+                                        <RefreshCw className={`h-4 w-4 ${transactionsLoading ? 'animate-spin' : ''}`} />
+                                        <span>{transactionsLoading ? 'Loading...' : 'Refresh'}</span>
+                                    </Button>
+                                </div>
                             </div>
+                            
+                            {/* Debug Info - Remove in production */}
+                            {process.env.NODE_ENV === 'development' && (
+                                <div className="mb-4 p-2 bg-gray-100 rounded text-xs">
+                                    <p>Debug Info:</p>
+                                    <p>User ID: {data?.id}</p>
+                                    <p>Transactions Count: {transactions.length}</p>
+                                    <p>Loading: {transactionsLoading.toString()}</p>
+                                    <p>Error: {transactionError || 'None'}</p>
+                                </div>
+                            )}
+                            
                             <TransactionHistory 
                                 transactions={transactions} 
                                 loading={transactionsLoading}
+                                error={transactionError}
                             />
                         </CardContent>
                     </Card>
@@ -603,3 +656,4 @@ const HomePage = () => {
 };
 
 export default HomePage;
+            
