@@ -17,19 +17,19 @@ import { getUserTransactions, createWithdrawalRequest } from '@/lib/firebaseServ
 const TransactionHistory = ({ transactions, loading, error, currentPage, totalPages, onPageChange, onRefresh }) => {
     if (loading) {
         return (
-            <div className="text-center py-8">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-yellow mx-auto"></div>
-                <p className="text-gray-500 mt-2">Loading transactions...</p>
+            <div className="text-center py-6">
+                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-brand-yellow mx-auto"></div>
+                <p className="text-gray-500 mt-2 text-sm">Loading transactions...</p>
             </div>
         );
     }
 
     if (error) {
         return (
-            <div className="text-center py-8 text-red-500">
-                <Database className="mx-auto h-12 w-12 text-red-300 mb-4" />
-                <p>Failed to load transactions</p>
-                <p className="text-sm text-gray-500">{error}</p>
+            <div className="text-center py-6 text-red-500">
+                <Database className="mx-auto h-8 w-8 text-red-300 mb-2" />
+                <p className="text-sm">Failed to load transactions</p>
+                <p className="text-xs text-gray-500">{error}</p>
                 <Button 
                     variant="outline" 
                     size="sm" 
@@ -44,10 +44,10 @@ const TransactionHistory = ({ transactions, loading, error, currentPage, totalPa
 
     if (!transactions || transactions.length === 0) {
         return (
-            <div className="text-center py-8 text-gray-500">
-                <Database className="mx-auto h-12 w-12 text-gray-300 mb-4" />
-                <p>No transactions yet.</p>
-                <p className="text-sm">Start mining or complete tasks to see your transaction history!</p>
+            <div className="text-center py-6 text-gray-500">
+                <Database className="mx-auto h-8 w-8 text-gray-300 mb-2" />
+                <p className="text-sm">No transactions yet.</p>
+                <p className="text-xs">Start mining or complete tasks to see your transaction history!</p>
             </div>
         );
     }
@@ -157,7 +157,7 @@ const TransactionHistory = ({ transactions, loading, error, currentPage, totalPa
     };
     
     return (
-        <div className="space-y-3">
+        <div className="space-y-2">
             {/* Transaction List */}
             <div className="space-y-2">
                 {transactions.map((tx, index) => {
@@ -168,7 +168,7 @@ const TransactionHistory = ({ transactions, loading, error, currentPage, totalPa
                     return (
                         <div key={tx.id || index} className={`p-3 rounded-lg border ${config.bgColor}`}>
                             <div className="flex items-center justify-between">
-                                <div className="flex items-center space-x-3">
+                                <div className="flex items-center space-x-2">
                                     <div className="p-1.5 bg-white rounded-full shadow-sm">
                                         {config.icon}
                                     </div>
@@ -212,7 +212,7 @@ const TransactionHistory = ({ transactions, loading, error, currentPage, totalPa
 
             {/* Pagination Controls */}
             {totalPages > 1 && (
-                <div className="flex items-center justify-between pt-4 border-t">
+                <div className="flex items-center justify-between pt-3 border-t">
                     <Button
                         variant="outline"
                         size="sm"
@@ -368,48 +368,68 @@ const HomePage = () => {
     const { toast } = useToast();
     const navigate = useNavigate();
     const [isWithdrawSheetOpen, setIsWithdrawSheetOpen] = useState(false);
-
+    
+    // Transaction pagination state
     const [allTransactions, setAllTransactions] = useState([]);
     const [currentPage, setCurrentPage] = useState(1);
     const [transactionsLoading, setTransactionsLoading] = useState(false);
     const [transactionError, setTransactionError] = useState(null);
-
+    
     const TRANSACTIONS_PER_PAGE = 10;
 
+    // Calculate pagination
     const totalPages = Math.ceil(allTransactions.length / TRANSACTIONS_PER_PAGE);
     const startIndex = (currentPage - 1) * TRANSACTIONS_PER_PAGE;
     const endIndex = startIndex + TRANSACTIONS_PER_PAGE;
     const currentTransactions = allTransactions.slice(startIndex, endIndex);
 
+    // Load user transactions from Firestore
     useEffect(() => {
         const loadTransactions = async () => {
             if (!data?.id) {
                 console.log('No user ID available for transactions');
                 return;
             }
-
+            
             try {
                 setTransactionsLoading(true);
                 setTransactionError(null);
                 console.log('Loading transactions for user ID:', data.id);
-
+                
+                // Load more transactions to support pagination (get up to 100)
                 const userTransactions = await getUserTransactions(data.id, 100);
                 console.log('Raw transactions from Firebase:', userTransactions);
-
-                if (Array.isArray(userTransactions) && userTransactions.length > 0) {
-                    const parseDate = (tx) => {
-                        if (tx.createdAt?.toDate) return tx.createdAt.toDate();
-                        if (tx.createdAt?.seconds) return new Date(tx.createdAt.seconds * 1000);
-                        if (tx.date) return new Date(tx.date);
-                        return new Date(0);
-                    };
-
-                    const sortedTransactions = userTransactions.sort(
-                        (a, b) => parseDate(b) - parseDate(a)
-                    );
-
+                
+                if (userTransactions && Array.isArray(userTransactions) && userTransactions.length > 0) {
+                    // Sort transactions by creation date (newest first)
+                    const sortedTransactions = userTransactions.sort((a, b) => {
+                        let dateA, dateB;
+                        
+                        if (a.createdAt?.toDate) {
+                            dateA = a.createdAt.toDate();
+                        } else if (a.createdAt?.seconds) {
+                            dateA = new Date(a.createdAt.seconds * 1000);
+                        } else if (a.date) {
+                            dateA = new Date(a.date);
+                        } else {
+                            dateA = new Date(0);
+                        }
+                        
+                        if (b.createdAt?.toDate) {
+                            dateB = b.createdAt.toDate();
+                        } else if (b.createdAt?.seconds) {
+                            dateB = new Date(b.createdAt.seconds * 1000);
+                        } else if (b.date) {
+                            dateB = new Date(b.date);
+                        } else {
+                            dateB = new Date(0);
+                        }
+                        
+                        return dateB - dateA;
+                    });
+                    
                     setAllTransactions(sortedTransactions);
-                    setCurrentPage(1);
+                    setCurrentPage(1); // Reset to first page when loading new data
                     console.log('Processed transactions:', sortedTransactions);
                 } else {
                     setAllTransactions([]);
@@ -435,12 +455,14 @@ const HomePage = () => {
         }
     }, [data?.id, isInitialized]);
 
+    // Handle page change
     const handlePageChange = (newPage) => {
         if (newPage >= 1 && newPage <= totalPages) {
             setCurrentPage(newPage);
         }
     };
 
+    // Refresh transactions function
     const refreshTransactions = async () => {
         if (!data?.id) {
             toast({
@@ -450,30 +472,44 @@ const HomePage = () => {
             });
             return;
         }
-
+        
         setTransactionsLoading(true);
         setTransactionError(null);
-
+        
         try {
             console.log('Refreshing transactions for user:', data.id);
             const userTransactions = await getUserTransactions(data.id, 100);
             console.log('Refreshed transactions:', userTransactions);
-
-            if (Array.isArray(userTransactions) && userTransactions.length > 0) {
-                const parseDate = (tx) => {
-                    if (tx.createdAt?.toDate) return tx.createdAt.toDate();
-                    if (tx.createdAt?.seconds) return new Date(tx.createdAt.seconds * 1000);
-                    if (tx.date) return new Date(tx.date);
-                    return new Date(0);
-                };
-
-                const sortedTransactions = userTransactions.sort(
-                    (a, b) => parseDate(b) - parseDate(a)
-                );
-
+            
+            if (userTransactions && Array.isArray(userTransactions) && userTransactions.length > 0) {
+                const sortedTransactions = userTransactions.sort((a, b) => {
+                    let dateA, dateB;
+                    
+                    if (a.createdAt?.toDate) {
+                        dateA = a.createdAt.toDate();
+                    } else if (a.createdAt?.seconds) {
+                        dateA = new Date(a.createdAt.seconds * 1000);
+                    } else if (a.date) {
+                        dateA = new Date(a.date);
+                    } else {
+                        dateA = new Date(0);
+                    }
+                    
+                    if (b.createdAt?.toDate) {
+                        dateB = b.createdAt.toDate();
+                    } else if (b.createdAt?.seconds) {
+                        dateB = new Date(b.createdAt.seconds * 1000);
+                    } else if (b.date) {
+                        dateB = new Date(b.date);
+                    } else {
+                        dateB = new Date(0);
+                    }
+                    
+                    return dateB - dateA;
+                });
                 setAllTransactions(sortedTransactions);
-                setCurrentPage(1);
-
+                setCurrentPage(1); // Reset to first page after refresh
+                
                 toast({
                     title: "Success",
                     description: `Loaded ${sortedTransactions.length} transactions`,
@@ -507,14 +543,175 @@ const HomePage = () => {
             </div>
         );
     }
-
+    
     const isStorageFull = data.storageMined >= data.storageCapacity;
 
     return (
         <div className="p-4 space-y-4">
-            {/* The rest of your JSX content remains unchanged */}
+            {/* User Profile Card */}
+            <Card className="bg-white rounded-2xl shadow-md p-4">
+                <CardContent className="flex items-center space-x-3 p-0">
+                    <Avatar className="h-12 w-12">
+                        <AvatarImage src={user?.photo_url} alt={user?.username} />
+                        <AvatarFallback>{user?.first_name?.[0] || 'U'}</AvatarFallback>
+                    </Avatar>
+                    <div>
+                        <p className="font-bold">{`${user?.first_name || 'User'} ${user?.last_name || ''}`}</p>
+                        <p className="text-sm text-gray-500">@{user?.username || 'telegram_user'}</p>
+                    </div>
+                </CardContent>
+            </Card>
+
+            {/* Balance Card - Navigate to Claim Page */}
+            <Card className="bg-white rounded-2xl shadow-md p-4 text-center cursor-pointer" onClick={() => navigate('/claim')}>
+                <CardContent className="p-0">
+                    <p className="text-sm text-gray-500">Total Balance</p>
+                    <p className="text-4xl font-bold my-1">{data.totalMined.toFixed(8)}</p>
+                    <p className="text-xs text-gray-400 mb-3">USDT</p>
+                    <div className="flex space-x-2 justify-center mt-2">
+                        <Button 
+                            className="bg-brand-yellow text-black font-bold flex-1" 
+                            onClick={(e) => {
+                                e.stopPropagation(); 
+                                navigate('/deposit');
+                            }}
+                        >
+                            Deposit
+                        </Button>
+                        <Button 
+                            className="bg-gray-200 text-gray-700 font-bold flex-1" 
+                            onClick={(e) => {
+                                e.stopPropagation(); 
+                                setIsWithdrawSheetOpen(true);
+                            }}
+                        >
+                            Withdraw
+                        </Button>
+                    </div>
+                </CardContent>
+            </Card>
+
+            {/* Tabs */}
+            <Tabs defaultValue="tokens" className="w-full">
+                <TabsList className="grid w-full grid-cols-2 bg-gray-200">
+                    <TabsTrigger value="tokens">Tokens</TabsTrigger>
+                    <TabsTrigger value="transactions" className="relative">
+                        Transactions
+                        {allTransactions.length > 0 && (
+                            <span className="ml-1 bg-brand-yellow text-black text-xs px-2 py-1 rounded-full">
+                                {allTransactions.length}
+                            </span>
+                        )}
+                        {transactionError && (
+                            <span className="ml-1 bg-red-500 text-white text-xs px-2 py-1 rounded-full">
+                                !
+                            </span>
+                        )}
+                    </TabsTrigger>
+                </TabsList>
+                
+                <TabsContent value="tokens">
+                    <div className="grid grid-cols-2 gap-4 mt-2">
+                        {/* USDT Balance Card - Navigate to Claim Page */}
+                        <Card className="bg-white rounded-2xl shadow-md p-4 cursor-pointer" onClick={() => navigate('/claim')}>
+                            <CardContent className="p-0">
+                                <p className="font-bold">USDT Balance</p>
+                                <p className="text-2xl font-bold">{data.totalMined.toFixed(8)}</p>
+                                <img  
+                                    className="w-full h-16 object-cover rounded-lg mt-2" 
+                                    alt="Moon and planet illustration" 
+                                    src="https://images.unsplash.com/photo-1695738654978-cca6cbfcb8df" 
+                                />
+                            </CardContent>
+                        </Card>
+                        
+                        {/* Storage Card - Navigate to Claim Page */}
+                        <Card className="bg-white rounded-2xl shadow-md p-4 cursor-pointer" onClick={() => navigate('/claim')}>
+                            <CardContent className="p-0 flex flex-col justify-between h-full">
+                                <div>
+                                    <p className="font-bold">Storage</p>
+                                    <Progress 
+                                        value={(data.storageMined / data.storageCapacity) * 100} 
+                                        className="mt-2 h-3 bg-gray-200 [&>div]:bg-brand-yellow" 
+                                    />
+                                </div>
+                                <div className="mt-2">
+                                    {isStorageFull ? (
+                                        <div className="flex items-center space-x-1 text-green-600">
+                                            <CheckCircle className="h-4 w-4" />
+                                            <span className="font-bold text-sm">Full - Tap to Claim</span>
+                                        </div>
+                                    ) : (
+                                        <p className="text-gray-500 text-sm">Collecting...</p>
+                                    )}
+                                    <p className="font-bold text-lg">{data.storageMined.toFixed(8)}</p>
+                                    <p className="text-xs text-gray-400">/ {data.storageCapacity.toFixed(8)}</p>
+                                </div>
+                            </CardContent>
+                        </Card>
+                    </div>
+                </TabsContent>
+                
+                <TabsContent value="transactions">
+                    <Card className="bg-white rounded-2xl shadow-md p-4 mt-2">
+                        <CardContent className="p-0">
+                            <div className="flex items-center justify-between mb-4">
+                                <div>
+                                    <h3 className="font-bold text-lg">Transaction History</h3>
+                                    {allTransactions.length > 0 && (
+                                        <p className="text-sm text-gray-500">
+                                            Showing {startIndex + 1}-{Math.min(endIndex, allTransactions.length)} of {allTransactions.length}
+                                        </p>
+                                    )}
+                                </div>
+                                <div className="flex items-center space-x-2">
+                                    {transactionError && (
+                                        <span className="text-xs text-red-500">Error</span>
+                                    )}
+                                    <Button 
+                                        variant="outline" 
+                                        size="sm"
+                                        onClick={refreshTransactions}
+                                        disabled={transactionsLoading}
+                                        className="flex items-center space-x-2"
+                                    >
+                                        <RefreshCw className={`h-4 w-4 ${transactionsLoading ? 'animate-spin' : ''}`} />
+                                        <span>{transactionsLoading ? 'Loading...' : 'Refresh'}</span>
+                                    </Button>
+                                </div>
+                            </div>
+                            
+                            <TransactionHistory 
+                                transactions={currentTransactions}
+                                loading={transactionsLoading}
+                                error={transactionError}
+                                currentPage={currentPage}
+                                totalPages={totalPages}
+                                onPageChange={handlePageChange}
+                                onRefresh={refreshTransactions}
+                            />
+                        </CardContent>
+                    </Card>
+                </TabsContent>
+            </Tabs>
+            
+            {/* Daily Earn Button */}
+            <Button 
+                className="w-full h-14 bg-brand-yellow text-black font-bold text-lg flex justify-between items-center rounded-xl" 
+                onClick={() => navigate('/boost')}
+            >
+                <span>EARN 0.1 USDT DAILY</span>
+                <ChevronRight className="h-6 w-6" />
+            </Button>
+
+            {/* Withdraw Sheet */}
+            <WithdrawSheet 
+                open={isWithdrawSheetOpen} 
+                onOpenChange={setIsWithdrawSheetOpen} 
+            />
         </div>
     );
 };
 
 export default HomePage;
+                    
