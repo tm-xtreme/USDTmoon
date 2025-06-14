@@ -20,17 +20,17 @@ const TaskItem = ({ task }) => {
         switch (userTask.status) {
             case 'new':
                 const isTelegram = task.target.includes('t.me') || task.target.startsWith('@');
-                return { text: isTelegram ? 'Join & Verify' : 'Complete Task', disabled: false };
+                return { text: isTelegram ? 'Join' : 'Start', disabled: false, color: 'bg-brand-yellow text-black' };
             case 'pending_claim':
-                return { text: 'Claim Reward', disabled: false };
+                return { text: 'Claim', disabled: false, color: 'bg-green-500 text-white' };
             case 'pending_approval':
-                return { text: 'Pending Review', disabled: true };
+                return { text: 'Pending', disabled: true, color: 'bg-orange-400 text-white' };
             case 'completed':
-                return { text: 'Completed', disabled: true, icon: <Icons.Check className="h-5 w-5"/> };
+                return { text: 'Completed', disabled: true, color: 'bg-green-600 text-white', icon: <Icons.Check className="h-4 w-4"/> };
             case 'rejected':
-                return { text: 'Try Again', disabled: false, variant: 'outline' };
+                return { text: 'Retry', disabled: false, color: 'bg-red-500 text-white' };
             default:
-                return { text: 'Start Task', disabled: false };
+                return { text: 'Start', disabled: false, color: 'bg-brand-yellow text-black' };
         }
     };
 
@@ -124,14 +124,12 @@ const TaskItem = ({ task }) => {
                             console.error('Telegram API Error:', data);
                             
                             if (data.error_code === 400) {
-                                // Bad Request - usually means bot is not admin or channel doesn't exist
                                 toast({
                                     title: 'Channel Error',
                                     description: 'Unable to verify membership. Please contact support.',
                                     variant: 'destructive'
                                 });
                             } else if (data.error_code === 403) {
-                                // Forbidden - bot doesn't have permission
                                 toast({
                                     title: 'Verification Unavailable',
                                     description: 'Automatic verification is not available for this channel.',
@@ -196,60 +194,97 @@ const TaskItem = ({ task }) => {
         }
     };
     
-    const { text, disabled, icon, variant } = getButtonInfo();
+    const { text, disabled, icon, color } = getButtonInfo();
 
     return (
-        <Card className="bg-white rounded-2xl shadow-md hover:shadow-lg transition-shadow duration-300">
-            <CardContent className="p-4 flex items-center justify-between">
-                <div className="flex items-center space-x-4">
-                    <div className="p-3 bg-brand-yellow/30 rounded-full">
+        <Card className="bg-white rounded-2xl shadow-md border border-gray-100 hover:shadow-lg transition-all duration-300">
+            <CardContent className="p-4">
+                <div className="flex items-start space-x-4">
+                    {/* Icon */}
+                    <div className="flex-shrink-0 p-3 bg-brand-yellow/20 rounded-xl">
                         <IconComponent className="h-6 w-6 text-brand-yellow" />
                     </div>
-                    <div className="flex-1">
-                        <p className="font-bold text-lg">{task.name}</p>
-                        <p className="text-sm text-gray-500 mb-1">{task.description}</p>
-                        <div className="flex items-center space-x-2">
-                            <p className="text-sm text-green-600 font-semibold">+{task.reward} USDT</p>
-                            {task.type === 'auto' && (
-                                <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full">
-                                    Auto-verify
-                                </span>
-                            )}
-                            {task.type === 'manual' && (
-                                <span className="text-xs bg-orange-100 text-orange-800 px-2 py-1 rounded-full">
-                                    Manual review
-                                </span>
-                            )}
+                    
+                    {/* Content */}
+                    <div className="flex-1 min-w-0">
+                        <div className="flex items-start justify-between mb-2">
+                            <h3 className="font-bold text-lg text-gray-900 leading-tight">{task.name}</h3>
+                            <div className="flex items-center space-x-1 ml-2">
+                                {task.type === 'auto' && (
+                                    <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full font-medium">
+                                        Auto
+                                    </span>
+                                )}
+                                {task.type === 'manual' && (
+                                    <span className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded-full font-medium">
+                                        Manual
+                                    </span>
+                                )}
+                            </div>
                         </div>
+                        
+                        <p className="text-sm text-gray-600 mb-3 leading-relaxed">{task.description}</p>
+                        
+                        {/* Reward and Status */}
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center space-x-2">
+                                <div className="flex items-center space-x-1">
+                                    <Icons.Coins className="h-4 w-4 text-green-600" />
+                                    <span className="text-sm font-bold text-green-600">+{task.reward} USDT</span>
+                                </div>
+                            </div>
+                            
+                            <Button 
+                                onClick={handleAction} 
+                                disabled={disabled || processing} 
+                                size="sm"
+                                className={`font-semibold px-4 py-2 rounded-lg transition-all duration-300 ${color} ${
+                                    !disabled && !processing ? 'hover:scale-105 shadow-md' : 'opacity-70'
+                                }`}
+                            >
+                                {processing ? (
+                                    <div className="flex items-center space-x-2">
+                                        <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-current"></div>
+                                        <span className="text-xs">Loading...</span>
+                                    </div>
+                                ) : (
+                                    <div className="flex items-center space-x-1">
+                                        {icon}
+                                        <span className="text-sm">{text}</span>
+                                    </div>
+                                )}
+                            </Button>
+                        </div>
+                        
+                        {/* Status Messages */}
                         {userTask.status === 'pending_approval' && (
-                            <p className="text-xs text-yellow-600 mt-1">⏳ Waiting for admin approval</p>
+                            <div className="mt-3 p-2 bg-orange-50 border border-orange-200 rounded-lg">
+                                <p className="text-xs text-orange-700 flex items-center">
+                                    <Icons.Clock className="h-3 w-3 mr-1" />
+                                    Waiting for admin approval
+                                </p>
+                            </div>
                         )}
+                        
                         {userTask.status === 'rejected' && userTask.rejectionReason && (
-                            <p className="text-xs text-red-600 mt-1">❌ {userTask.rejectionReason}</p>
+                            <div className="mt-3 p-2 bg-red-50 border border-red-200 rounded-lg">
+                                <p className="text-xs text-red-700 flex items-center">
+                                    <Icons.AlertCircle className="h-3 w-3 mr-1" />
+                                    Rejected: {userTask.rejectionReason}
+                                </p>
+                            </div>
+                        )}
+                        
+                        {userTask.status === 'completed' && (
+                            <div className="mt-3 p-2 bg-green-50 border border-green-200 rounded-lg">
+                                <p className="text-xs text-green-700 flex items-center">
+                                    <Icons.CheckCircle className="h-3 w-3 mr-1" />
+                                    Task completed successfully
+                                </p>
+                            </div>
                         )}
                     </div>
                 </div>
-                <Button 
-                    onClick={handleAction} 
-                    disabled={disabled || processing} 
-                    className={`font-bold w-32 transition-all duration-300 ${
-                        disabled || processing
-                            ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                            : variant === 'outline'
-                            ? 'border-brand-yellow text-brand-yellow hover:bg-brand-yellow hover:text-black'
-                            : 'bg-brand-yellow text-black hover:bg-yellow-400 hover:scale-105'
-                    }`}
-                    variant={variant}
-                >
-                    {processing ? (
-                        <div className="flex items-center space-x-2">
-                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-current"></div>
-                            <span className="text-xs">Processing...</span>
-                        </div>
-                    ) : (
-                        icon || text
-                    )}
-                </Button>
             </CardContent>
         </Card>
     );
@@ -285,7 +320,7 @@ const TasksPage = () => {
 
     if (loading) {
         return (
-            <div className="p-4 space-y-6">
+            <div className="p-4 space-y-6 bg-gradient-to-b from-yellow-50 to-orange-50 min-h-screen">
                 <div className="text-center">
                     <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-brand-yellow mx-auto"></div>
                     <p className="mt-4 text-brand-text">Loading tasks...</p>
@@ -296,7 +331,7 @@ const TasksPage = () => {
 
     if (!gameData) {
         return (
-            <div className="p-4 space-y-6">
+            <div className="p-4 space-y-6 bg-gradient-to-b from-yellow-50 to-orange-50 min-h-screen">
                 <div className="text-center">
                     <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-brand-yellow mx-auto"></div>
                     <p className="mt-4 text-brand-text">Loading user data...</p>
@@ -305,72 +340,80 @@ const TasksPage = () => {
         );
     }
 
+    // Filter tasks by status
+    const availableTasks = tasks.filter(t => {
+        const userTaskStatus = gameData.userTasks?.[t.id]?.status;
+        return !userTaskStatus || userTaskStatus === 'new' || userTaskStatus === 'rejected';
+    });
+
     const pendingTasks = tasks.filter(t => {
         const userTaskStatus = gameData.userTasks?.[t.id]?.status;
-        return !userTaskStatus || userTaskStatus !== 'completed';
+        return userTaskStatus === 'pending_approval' || userTaskStatus === 'pending_claim';
     });
 
     const completedTasks = tasks.filter(t => {
         const userTaskStatus = gameData.userTasks?.[t.id]?.status;
         return userTaskStatus === 'completed';
     });
-
-    const pendingApprovalTasks = tasks.filter(t => {
-        const userTaskStatus = gameData.userTasks?.[t.id]?.status;
-        return userTaskStatus === 'pending_approval';
-    });
     
     return (
-        <div className="p-4 space-y-6 bg-gradient-to-b from-purple-50 to-white min-h-screen">
+        <div className="p-4 space-y-6 bg-gradient-to-b from-yellow-50 to-orange-50 min-h-screen">
             {/* Header */}
             <div className="text-center">
                 <h1 className="text-3xl font-bold mb-2 text-brand-text">Tasks & Rewards</h1>
                 <p className="text-gray-600 mb-4">Complete tasks to earn extra USDT!</p>
                 
                 {/* Stats */}
-                <div className="grid grid-cols-3 gap-4 max-w-md mx-auto">
-                    <div className="bg-white rounded-lg p-3 shadow-md">
-                        <p className="text-2xl font-bold text-blue-600">{tasks.length}</p>
-                        <p className="text-xs text-gray-500">Total Tasks</p>
+                <div className="grid grid-cols-3 gap-3 max-w-sm mx-auto">
+                    <div className="bg-white rounded-xl p-3 shadow-sm border border-gray-100">
+                        <p className="text-xl font-bold text-blue-600">{availableTasks.length}</p>
+                        <p className="text-xs text-gray-500">Available</p>
                     </div>
-                    <div className="bg-white rounded-lg p-3 shadow-md">
-                        <p className="text-2xl font-bold text-green-600">{completedTasks.length}</p>
-                        <p className="text-xs text-gray-500">Completed</p>
-                    </div>
-                    <div className="bg-white rounded-lg p-3 shadow-md">
-                        <p className="text-2xl font-bold text-orange-600">{pendingApprovalTasks.length}</p>
+                    <div className="bg-white rounded-xl p-3 shadow-sm border border-gray-100">
+                        <p className="text-xl font-bold text-orange-600">{pendingTasks.length}</p>
                         <p className="text-xs text-gray-500">Pending</p>
+                    </div>
+                    <div className="bg-white rounded-xl p-3 shadow-sm border border-gray-100">
+                        <p className="text-xl font-bold text-green-600">{completedTasks.length}</p>
+                        <p className="text-xs text-gray-500">Completed</p>
                     </div>
                 </div>
             </div>
 
             {/* Available Tasks */}
-            <div>
-                <h2 className="text-xl font-bold mb-4 flex items-center">
-                    <Icons.Target className="h-6 w-6 mr-2 text-blue-600" />
-                    Available Tasks ({pendingTasks.length})
-                </h2>
-                <div className="space-y-3">
-                    {pendingTasks.length > 0 ? (
-                        pendingTasks.map(task => (
+            {availableTasks.length > 0 && (
+                <div>
+                    <h2 className="text-xl font-bold mb-4 flex items-center text-brand-text">
+                        <Icons.Target className="h-6 w-6 mr-2 text-blue-600" />
+                        Available Tasks ({availableTasks.length})
+                    </h2>
+                    <div className="space-y-3">
+                        {availableTasks.map(task => (
                             <TaskItem key={task.id} task={task} />
-                        ))
-                    ) : (
-                        <Card className="bg-white rounded-2xl shadow-md">
-                            <CardContent className="p-6 text-center text-gray-500">
-                                <Icons.CheckCircle className="h-12 w-12 mx-auto mb-3 text-gray-300" />
-                                <p className="font-semibold">All tasks completed!</p>
-                                <p className="text-sm">Check back later for new tasks and rewards.</p>
-                            </CardContent>
-                        </Card>
-                    )}
+                        ))}
+                    </div>
                 </div>
-            </div>
+            )}
+
+            {/* Pending Tasks */}
+            {pendingTasks.length > 0 && (
+                <div>
+                    <h2 className="text-xl font-bold mb-4 flex items-center text-brand-text">
+                        <Icons.Clock className="h-6 w-6 mr-2 text-orange-600" />
+                        Pending Tasks ({pendingTasks.length})
+                    </h2>
+                    <div className="space-y-3">
+                        {pendingTasks.map(task => (
+                            <TaskItem key={task.id} task={task} />
+                        ))}
+                    </div>
+                </div>
+            )}
 
             {/* Completed Tasks */}
             {completedTasks.length > 0 && (
                 <div>
-                    <h2 className="text-xl font-bold mb-4 flex items-center">
+                    <h2 className="text-xl font-bold mb-4 flex items-center text-brand-text">
                         <Icons.CheckCircle className="h-6 w-6 mr-2 text-green-600" />
                         Completed Tasks ({completedTasks.length})
                     </h2>
@@ -382,64 +425,9 @@ const TasksPage = () => {
                 </div>
             )}
 
-            {/* Pending Approval Tasks */}
-            {pendingApprovalTasks.length > 0 && (
-                <div>
-                    <h2 className="text-xl font-bold mb-4 flex items-center">
-                        <Icons.Clock className="h-6 w-6 mr-2 text-orange-600" />
-                        Pending Review ({pendingApprovalTasks.length})
-                    </h2>
-                    <div className="space-y-3">
-                        {pendingApprovalTasks.map(task => (
-                            <TaskItem key={task.id} task={task} />
-                        ))}
-                    </div>
-                    <Card className="bg-yellow-50 border-yellow-200 mt-4">
-                        <CardContent className="p-4">
-                            <div className="flex items-center space-x-2 mb-2">
-                                <Icons.Info className="h-5 w-5 text-yellow-600" />
-                                <span className="font-semibold text-yellow-800">Review Process</span>
-                            </div>
-                            <p className="text-sm text-yellow-700">
-                                Your manual tasks are being reviewed by our admin team. 
-                                This usually takes 1-24 hours. You'll be notified once approved or if any changes are needed.
-                            </p>
-                        </CardContent>
-                    </Card>
-                </div>
-            )}
-
-            {/* Task Instructions */}
-            <Card className="bg-gradient-to-r from-blue-50 to-purple-50 border-blue-200">
-                <CardContent className="p-4">
-                    <h3 className="font-bold text-lg mb-3 flex items-center">
-                        <Icons.HelpCircle className="h-5 w-5 mr-2 text-blue-500" />
-                        How Tasks Work
-                    </h3>
-                    <div className="space-y-2 text-sm">
-                        <div className="flex items-start space-x-2">
-                            <Icons.Zap className="h-4 w-4 text-blue-500 mt-0.5" />
-                            <span><strong>Auto-verify tasks:</strong> Join Telegram channels/groups and get instant rewards upon verification</span>
-                        </div>
-                        <div className="flex items-start space-x-2">
-                            <Icons.Eye className="h-4 w-4 text-orange-500 mt-0.5" />
-                            <span><strong>Manual tasks:</strong> Complete various activities and wait for admin approval</span>
-                        </div>
-                        <div className="flex items-start space-x-2">
-                            <Icons.Gift className="h-4 w-4 text-green-500 mt-0.5" />
-                            <span><strong>Rewards:</strong> Earn USDT that's added directly to your mining balance</span>
-                        </div>
-                        <div className="flex items-start space-x-2">
-                            <Icons.RefreshCw className="h-4 w-4 text-purple-500 mt-0.5" />
-                            <span><strong>Rejected tasks:</strong> Can be resubmitted after addressing the feedback</span>
-                        </div>
-                    </div>
-                </CardContent>
-            </Card>
-
             {/* No Tasks Available */}
             {tasks.length === 0 && (
-                <Card className="bg-white rounded-2xl shadow-md">
+                <Card className="bg-white rounded-2xl shadow-md border border-gray-100">
                     <CardContent className="p-8 text-center">
                         <Icons.Inbox className="h-16 w-16 mx-auto mb-4 text-gray-300" />
                         <h3 className="text-xl font-bold text-gray-600 mb-2">No Tasks Available</h3>
@@ -448,11 +436,24 @@ const TasksPage = () => {
                         </p>
                         <Button 
                             onClick={() => window.location.reload()} 
-                            className="bg-brand-yellow text-black font-bold"
+                            className="bg-brand-yellow text-black font-bold hover:bg-yellow-400"
                         >
                             <Icons.RefreshCw className="h-4 w-4 mr-2" />
                             Refresh Tasks
                         </Button>
+                    </CardContent>
+                </Card>
+            )}
+
+            {/* All Tasks Completed */}
+            {tasks.length > 0 && availableTasks.length === 0 && pendingTasks.length === 0 && (
+                <Card className="bg-gradient-to-r from-green-50 to-emerald-50 border-green-200">
+                    <CardContent className="p-6 text-center">
+                        <Icons.Trophy className="h-12 w-12 mx-auto mb-3 text-green-600" />
+                        <h3 className="text-lg font-bold text-green-800 mb-2">All Tasks Completed! 🎉</h3>
+                        <p className="text-green-700 text-sm">
+                            Great job! You've completed all available tasks. Check back later for new opportunities to earn more USDT.
+                        </p>
                     </CardContent>
                 </Card>
             )}
@@ -461,3 +462,4 @@ const TasksPage = () => {
 };
 
 export default TasksPage;
+            
