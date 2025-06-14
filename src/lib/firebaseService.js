@@ -42,7 +42,6 @@ export const createOrUpdateUser = async (telegramData) => {
         ...userData,
         // Game data
         totalMined: 0,
-        balance: 0,
         lastStorageSync: Date.now(),
         storageFillTime: Date.now() + 2 * 60 * 60 * 1000,
         minerLevel: 1,
@@ -51,7 +50,6 @@ export const createOrUpdateUser = async (telegramData) => {
         storageCapacity: 0.000054,
         storageMined: 0,
         userTasks: {},
-        completedTasks: [],
         // Additional fields
         referralCode: generateReferralCode(),
         referredBy: null,
@@ -99,46 +97,6 @@ export const updateUserData = async (userId, updateData) => {
   }
 };
 
-// Transaction Management
-export const addTransaction = async (userId, transactionData) => {
-  try {
-    const transactionsRef = collection(db, 'transactions');
-    const docRef = await addDoc(transactionsRef, {
-      userId,
-      ...transactionData,
-      createdAt: serverTimestamp()
-    });
-    return docRef.id;
-  } catch (error) {
-    console.error('Error adding transaction:', error);
-    throw error;
-  }
-};
-
-export const getUserTransactions = async (userId, limitCount = 50) => {
-  try {
-    const transactionsRef = collection(db, 'transactions');
-    const q = query(
-      transactionsRef, 
-      where('userId', '==', userId),
-      orderBy('createdAt', 'desc'),
-      limit(limitCount)
-    );
-    
-    const querySnapshot = await getDocs(q);
-    const transactions = [];
-    
-    querySnapshot.forEach((doc) => {
-      transactions.push({ id: doc.id, ...doc.data() });
-    });
-    
-    return transactions;
-  } catch (error) {
-    console.error('Error getting transactions:', error);
-    throw error;
-  }
-};
-
 // Admin Statistics
 export const getAdminStats = async () => {
   try {
@@ -151,9 +109,9 @@ export const getAdminStats = async () => {
     ] = await Promise.all([
       getCountFromServer(collection(db, 'users')),
       getCountFromServer(collection(db, 'tasks')),
-      getCountFromServer(query(collection(db, 'pendingApprovals'), where('type', '==', 'withdrawal'), where('status', '==', 'pending'))),
-      getCountFromServer(query(collection(db, 'pendingApprovals'), where('type', '==', 'deposit'), where('status', '==', 'pending'))),
-      getCountFromServer(query(collection(db, 'pendingApprovals'), where('type', '==', 'task'), where('status', '==', 'pending')))
+      getCountFromServer(query(collection(db, 'withdrawals'), where('status', '==', 'pending'))),
+      getCountFromServer(query(collection(db, 'deposits'), where('status', '==', 'pending'))),
+      getCountFromServer(query(collection(db, 'taskSubmissions'), where('status', '==', 'pending_approval')))
     ]);
 
     return {
@@ -254,319 +212,384 @@ export const deleteTask = async (taskId) => {
   }
 };
 
-// Task submission and approval functions
-export const submitTaskForApproval = async (userId, taskId, taskData) => {
+// Task Submissions Management
+export const createTaskSubmission = async (userId, taskId, taskData, userInfo) => {
   try {
-    // Get user data
-    const userData = await getUserData(userId);
-    if (!userData) {
-      throw new Error('User not found');
-    }
-
-    const taskSubmission = {
+    const submissionsRef = collection(db, 'taskSubmissions');
+    const docRef = await addDoc(submissionsRef, {
       userId,
       taskId,
-      taskTitle: taskData.title || taskData.name,
-      taskReward: taskData.reward,
+      taskName: taskData.name,
       taskDescription: taskData.description,
+      taskReward: taskData.reward,
+      taskTarget: taskData.target,
       taskType: taskData.type,
-      userName: userData.firstName || userData.username || 'Unknown User',
-      userTelegramId: userData.telegramId || 'N/A',
+      username: userInfo.username || '',
+      firstName: userInfo.firstName || '',
+      lastName: userInfo.lastName || '',
+      status: 'pending_approval',
       submittedAt: serverTimestamp(),
-      status: 'pending',
-      type: 'task'
-    };
-    
-    const docRef = await addDoc(collection(db, 'pendingApprovals'), taskSubmission);
-    
-    // Send admin notification
-    await sendAdminNotification(`New task submission from ${taskSubmission.userName} for task: ${taskSubmission.taskTitle}`);
-    
-    return { success: true, id: docRef.id };
-  } catch (error) {
-    console.error('Error submitting task for approval:', error);
-    return { success: false, error: error.message };
-  }
-};
-
-// Deposit request functions
-export const submitDepositRequest = async (userId, amount, method, transactionId) => {
-  try {
-    // Get user data
-    const userData = await getUserData(userId);
-    if (!userData) {
-      throw new Error('User not found');
-    }
-
-    const depositRequest = {
-      userId,
-      amount: parseFloat(amount),
-      method,
-      transactionId,
-      userName: userData.firstName || userData.username || 'Unknown User',
-      userTelegramId: userData.telegramId || 'N/A',
-      submittedAt: serverTimestamp(),
-      status: 'pending',
-      type: 'deposit'
-    };
-    
-    const docRef = await addDoc(collection(db, 'pendingApprovals'), depositRequest);
-    
-    // Send admin notification
-    await sendAdminNotification(`New deposit request from ${depositRequest.userName} for $${amount}`);
-    
-    return { success: true, id: docRef.id };
-  } catch (error) {
-    console.error('Error submitting deposit request:', error);
-    return { success: false, error: error.message };
-  }
-};
-
-// Withdrawal request functions
-export const submitWithdrawalRequest = async (userId, amount, method, walletAddress) => {
-  try {
-    // Get user data
-    const userData = await getUserData(userId);
-    if (!userData) {
-      throw new Error('User not found');
-    }
-
-    // Check if user has sufficient balance
-    if ((userData.balance || 0) < amount) {
-      throw new Error('Insufficient balance');
-    }
-
-    // Deduct balance temporarily (will be refunded if rejected)
-    await updateUserData(userId, {
-      balance: (userData.balance || 0) - amount
+      createdAt: serverTimestamp()
     });
-
-    const withdrawalRequest = {
-      userId,
-      amount: parseFloat(amount),
-      method,
-      walletAddress,
-      userName: userData.firstName || userData.username || 'Unknown User',
-      userTelegramId: userData.telegramId || 'N/A',
-      submittedAt: serverTimestamp(),
-      status: 'pending',
-      type: 'withdrawal'
-    };
-    
-    const docRef = await addDoc(collection(db, 'pendingApprovals'), withdrawalRequest);
-    
-    // Send admin notification
-    await sendAdminNotification(`New withdrawal request from ${withdrawalRequest.userName} for $${amount}`);
-    
-    return { success: true, id: docRef.id };
+    return docRef.id;
   } catch (error) {
-    console.error('Error submitting withdrawal request:', error);
-    return { success: false, error: error.message };
+    console.error('Error creating task submission:', error);
+    throw error;
   }
 };
 
-// Admin functions to get pending requests
-export const getPendingTasks = async () => {
+export const getPendingTaskSubmissions = async () => {
   try {
+    const submissionsRef = collection(db, 'taskSubmissions');
     const q = query(
-      collection(db, 'pendingApprovals'),
-      where('type', '==', 'task'),
-      where('status', '==', 'pending'),
-      orderBy('submittedAt', 'desc')
+      submissionsRef, 
+      where('status', '==', 'pending_approval'), 
+      orderBy('createdAt', 'desc')
+    );
+    const querySnapshot = await getDocs(q);
+    
+    const submissions = [];
+    querySnapshot.forEach((doc) => {
+      submissions.push({ id: doc.id, ...doc.data() });
+    });
+    
+    return submissions;
+  } catch (error) {
+    console.error('Error getting pending task submissions:', error);
+    throw error;
+  }
+};
+
+export const getAllTaskSubmissions = async (limitCount = 1000) => {
+  try {
+    const submissionsRef = collection(db, 'taskSubmissions');
+    const q = query(submissionsRef, orderBy('createdAt', 'desc'), limit(limitCount));
+    const querySnapshot = await getDocs(q);
+    
+    const submissions = [];
+    querySnapshot.forEach((doc) => {
+      submissions.push({ id: doc.id, ...doc.data() });
+    });
+    
+    return submissions;
+  } catch (error) {
+    console.error('Error getting all task submissions:', error);
+    throw error;
+  }
+};
+
+export const updateTaskSubmissionStatus = async (submissionId, status, reason = '') => {
+  try {
+    const submissionRef = doc(db, 'taskSubmissions', submissionId);
+    const updateData = {
+      status,
+      updatedAt: serverTimestamp()
+    };
+    
+    if (status === 'approved') {
+      updateData.approvedAt = serverTimestamp();
+    } else if (status === 'rejected') {
+      updateData.rejectedAt = serverTimestamp();
+      if (reason) {
+        updateData.rejectionReason = reason;
+      }
+    }
+    
+    await updateDoc(submissionRef, updateData);
+    return true;
+  } catch (error) {
+    console.error('Error updating task submission status:', error);
+    throw error;
+  }
+};
+
+export const getTaskSubmission = async (submissionId) => {
+  try {
+    const submissionRef = doc(db, 'taskSubmissions', submissionId);
+    const submissionSnap = await getDoc(submissionRef);
+    
+    if (submissionSnap.exists()) {
+      return { id: submissionSnap.id, ...submissionSnap.data() };
+    }
+    return null;
+  } catch (error) {
+    console.error('Error getting task submission:', error);
+    throw error;
+  }
+};
+
+// Complete Task Function (for auto tasks)
+export const completeTask = async (userId, taskId) => {
+  try {
+    const userRef = doc(db, 'users', userId);
+    const userSnap = await getDoc(userRef);
+    
+    if (!userSnap.exists()) {
+      return false;
+    }
+    
+    const userData = userSnap.data();
+    const userTasks = userData.userTasks || {};
+    
+    // Update user task status to completed
+    userTasks[taskId] = {
+      status: 'completed',
+      completedAt: new Date().toISOString()
+    };
+    
+    await updateDoc(userRef, {
+      userTasks,
+      updatedAt: serverTimestamp()
+    });
+    
+    return true;
+  } catch (error) {
+    console.error('Error completing task:', error);
+    return false;
+  }
+};
+
+// Send Admin Notification Function
+export const sendAdminNotification = async (message) => {
+  try {
+    const notificationsRef = collection(db, 'adminNotifications');
+    await addDoc(notificationsRef, {
+      message,
+      type: 'task_notification',
+      read: false,
+      createdAt: serverTimestamp()
+    });
+    return true;
+  } catch (error) {
+    console.error('Error sending admin notification:', error);
+    return false;
+  }
+};
+
+// Transaction Management
+export const addTransaction = async (userId, transactionData) => {
+  try {
+    const transactionsRef = collection(db, 'transactions');
+    const docRef = await addDoc(transactionsRef, {
+      userId,
+      ...transactionData,
+      createdAt: serverTimestamp()
+    });
+    return docRef.id;
+  } catch (error) {
+    console.error('Error adding transaction:', error);
+    throw error;
+  }
+};
+
+export const getUserTransactions = async (userId, limitCount = 50) => {
+  try {
+    const transactionsRef = collection(db, 'transactions');
+    const q = query(
+      transactionsRef, 
+      where('userId', '==', userId),
+      orderBy('createdAt', 'desc'),
+      limit(limitCount)
     );
     
     const querySnapshot = await getDocs(q);
-    const pendingTasks = [];
+    const transactions = [];
     
-    querySnapshot.forEach((docSnapshot) => {
-      const data = docSnapshot.data();
-      pendingTasks.push({
-        id: docSnapshot.id,
-        ...data
-      });
+    querySnapshot.forEach((doc) => {
+      transactions.push({ id: doc.id, ...doc.data() });
     });
     
-    return pendingTasks;
+    return transactions;
   } catch (error) {
-    console.error('Error getting pending tasks:', error);
-    return [];
+    console.error('Error getting transactions:', error);
+    throw error;
   }
 };
 
-export const getPendingDeposits = async () => {
+// Withdrawal Management
+export const createWithdrawalRequest = async (userId, amount, address, username) => {
   try {
-    const q = query(
-      collection(db, 'pendingApprovals'),
-      where('type', '==', 'deposit'),
-      where('status', '==', 'pending'),
-      orderBy('submittedAt', 'desc')
-    );
-    
-    const querySnapshot = await getDocs(q);
-    const pendingDeposits = [];
-    
-    querySnapshot.forEach((docSnapshot) => {
-      const data = docSnapshot.data();
-      pendingDeposits.push({
-        id: docSnapshot.id,
-        ...data
-      });
+    const withdrawalsRef = collection(db, 'withdrawals');
+    const docRef = await addDoc(withdrawalsRef, {
+      userId,
+      username,
+      amount,
+      address,
+      status: 'pending',
+      createdAt: serverTimestamp()
     });
     
-    return pendingDeposits;
+    // Add transaction record
+    await addTransaction(userId, {
+      type: 'withdrawal_request',
+      amount: -amount,
+      address,
+      status: 'pending'
+    });
+    
+    return docRef.id;
   } catch (error) {
-    console.error('Error getting pending deposits:', error);
-    return [];
+    console.error('Error creating withdrawal request:', error);
+    throw error;
   }
 };
 
 export const getPendingWithdrawals = async () => {
   try {
-    const q = query(
-      collection(db, 'pendingApprovals'),
-      where('type', '==', 'withdrawal'),
-      where('status', '==', 'pending'),
-      orderBy('submittedAt', 'desc')
-    );
-    
+    const withdrawalsRef = collection(db, 'withdrawals');
+    const q = query(withdrawalsRef, where('status', '==', 'pending'), orderBy('createdAt', 'desc'));
     const querySnapshot = await getDocs(q);
-    const pendingWithdrawals = [];
     
-    querySnapshot.forEach((docSnapshot) => {
-      const data = docSnapshot.data();
-      pendingWithdrawals.push({
-        id: docSnapshot.id,
-        ...data
-      });
+    const withdrawals = [];
+    querySnapshot.forEach((doc) => {
+      withdrawals.push({ id: doc.id, ...doc.data() });
     });
     
-    return pendingWithdrawals;
+    return withdrawals;
   } catch (error) {
     console.error('Error getting pending withdrawals:', error);
-    return [];
+    throw error;
   }
 };
 
-// Admin approval/rejection functions
-export const approveRequest = async (requestId, requestType) => {
+export const getAllWithdrawals = async (limitCount = 1000) => {
   try {
-    const requestRef = doc(db, 'pendingApprovals', requestId);
-    const requestDoc = await getDoc(requestRef);
+    const withdrawalsRef = collection(db, 'withdrawals');
+    const q = query(withdrawalsRef, orderBy('createdAt', 'desc'), limit(limitCount));
+    const querySnapshot = await getDocs(q);
     
-    if (!requestDoc.exists()) {
-      throw new Error('Request not found');
-    }
-    
-    const requestData = requestDoc.data();
-    
-    // Update request status
-    await updateDoc(requestRef, {
-      status: 'approved',
-      approvedAt: serverTimestamp()
+    const withdrawals = [];
+    querySnapshot.forEach((doc) => {
+      withdrawals.push({ id: doc.id, ...doc.data() });
     });
     
-    // Handle different request types
-    if (requestType === 'task') {
-      // Update user's completed tasks and balance
-      const userRef = doc(db, 'users', requestData.userId);
-      const userDoc = await getDoc(userRef);
-      
-      if (userDoc.exists()) {
-        const userData = userDoc.data();
-        const newBalance = (userData.balance || 0) + requestData.taskReward;
-        const completedTasks = userData.completedTasks || [];
-        
-        await updateDoc(userRef, {
-          balance: newBalance,
-          totalMined: (userData.totalMined || 0) + requestData.taskReward,
-          completedTasks: [...completedTasks, requestData.taskId]
-        });
-
-        // Add transaction record for task reward
-        await addTransaction(requestData.userId, {
-          type: 'task_reward',
-          amount: requestData.taskReward,
-          description: `Task completed: ${requestData.taskTitle}`,
-          status: 'completed'
-        });
-      }
-    } else if (requestType === 'deposit') {
-      // Update user's balance
-      const userRef = doc(db, 'users', requestData.userId);
-      const userDoc = await getDoc(userRef);
-      
-      if (userDoc.exists()) {
-        const userData = userDoc.data();
-        const newBalance = (userData.balance || 0) + requestData.amount;
-        
-        await updateDoc(userRef, {
-          balance: newBalance
-        });
-
-        // Add transaction record for deposit
-        await addTransaction(requestData.userId, {
-          type: 'deposit',
-          amount: requestData.amount,
-          description: `Deposit via ${requestData.method}`,
-          transactionId: requestData.transactionId,
-          status: 'completed'
-        });
-      }
-    } else if (requestType === 'withdrawal') {
-      // Withdrawal approval - balance was already deducted when request was made
-      // Just update the request status (already done above)
-    }
-
-    // Send admin notification for approval
-    await sendAdminNotification(`${requestType.charAt(0).toUpperCase() + requestType.slice(1)} approved for ${requestData.userName}`);
-
-    return { success: true };
+    return withdrawals;
   } catch (error) {
-    console.error('Error approving request:', error);
-    return { success: false, error: error.message };
+    console.error('Error getting all withdrawals:', error);
+    throw error;
   }
 };
 
-export const rejectRequest = async (requestId, requestType, reason = '') => {
+export const updateWithdrawalStatus = async (withdrawalId, status) => {
   try {
-    const requestRef = doc(db, 'pendingApprovals', requestId);
-    const requestDoc = await getDoc(requestRef);
+    const withdrawalRef = doc(db, 'withdrawals', withdrawalId);
+    await updateDoc(withdrawalRef, {
+      status,
+      updatedAt: serverTimestamp()
+    });
+    return true;
+  } catch (error) {
+    console.error('Error updating withdrawal status:', error);
+    throw error;
+  }
+};
+
+// Deposit Management
+export const createDepositRequest = async (userId, amount, transactionHash, username) => {
+  try {
+    const depositsRef = collection(db, 'deposits');
+    const docRef = await addDoc(depositsRef, {
+      userId,
+      username,
+      amount,
+      transactionHash,
+      status: 'pending',
+      createdAt: serverTimestamp()
+    });
+
+    return docRef.id;
+  } catch (error) {
+    console.error('Error creating deposit request:', error);
+    throw error;
+  }
+};
+
+export const getPendingDeposits = async () => {
+  try {
+    const depositsRef = collection(db, 'deposits');
+    const q = query(depositsRef, where('status', '==', 'pending'), orderBy('createdAt', 'desc'));
+    const querySnapshot = await getDocs(q);
     
-    if (!requestDoc.exists()) {
-      throw new Error('Request not found');
-    }
-    
-    const requestData = requestDoc.data();
-    
-    // Update request status
-    await updateDoc(requestRef, {
-      status: 'rejected',
-      rejectedAt: serverTimestamp(),
-      rejectionReason: reason
+    const deposits = [];
+    querySnapshot.forEach((doc) => {
+      deposits.push({ id: doc.id, ...doc.data() });
     });
     
-    // If it's a withdrawal, refund the balance
-    if (requestType === 'withdrawal') {
-      const userRef = doc(db, 'users', requestData.userId);
-      const userDoc = await getDoc(userRef);
-      
-      if (userDoc.exists()) {
-        const userData = userDoc.data();
-        const newBalance = (userData.balance || 0) + requestData.amount;
-        
-        await updateDoc(userRef, {
-          balance: newBalance
-        });
-      }
-    }
-
-    // Send admin notification for rejection
-    await sendAdminNotification(`${requestType.charAt(0).toUpperCase() + requestType.slice(1)} rejected for ${requestData.userName}. Reason: ${reason}`);
-
-    return { success: true };
+    return deposits;
   } catch (error) {
-    console.error('Error rejecting request:', error);
-    return { success: false, error: error.message };
+    console.error('Error getting pending deposits:', error);
+    throw error;
+  }
+};
+
+export const getAllDeposits = async (limitCount = 1000) => {
+  try {
+    const depositsRef = collection(db, 'deposits');
+    const q = query(depositsRef, orderBy('createdAt', 'desc'), limit(limitCount));
+    const querySnapshot = await getDocs(q);
+    
+    const deposits = [];
+    querySnapshot.forEach((doc) => {
+      deposits.push({ id: doc.id, ...doc.data() });
+    });
+    
+    return deposits;
+  } catch (error) {
+    console.error('Error getting all deposits:', error);
+    throw error;
+  }
+};
+
+export const updateDepositStatus = async (depositId, status) => {
+  try {
+    const depositRef = doc(db, 'deposits', depositId);
+    await updateDoc(depositRef, {
+      status,
+      updatedAt: serverTimestamp()
+    });
+    return true;
+  } catch (error) {
+    console.error('Error updating deposit status:', error);
+    throw error;
+  }
+};
+
+// Task Approval/Rejection Functions
+export const approveTaskSubmission = async (submissionId, userId, taskReward) => {
+  try {
+    // Update submission status
+    await updateTaskSubmissionStatus(submissionId, 'approved');
+    
+    // Get user data and update balance
+    const userData = await getUserData(userId);
+    if (userData) {
+      await updateUserData(userId, {
+        totalMined: userData.totalMined + taskReward
+      });
+      
+      // Add transaction record
+      await addTransaction(userId, {
+        type: 'task_reward',
+        amount: taskReward,
+        submissionId: submissionId,
+        status: 'completed'
+      });
+    }
+    
+    return true;
+  } catch (error) {
+    console.error('Error approving task submission:', error);
+    throw error;
+  }
+};
+
+export const rejectTaskSubmission = async (submissionId, reason = '') => {
+  try {
+    await updateTaskSubmissionStatus(submissionId, 'rejected', reason);
+    return true;
+  } catch (error) {
+    console.error('Error rejecting task submission:', error);
+    throw error;
   }
 };
 
@@ -620,7 +643,7 @@ export const subscribeToUserData = (userId, callback) => {
 
 export const subscribeToTaskSubmissions = (callback) => {
   const submissionsRef = collection(db, 'taskSubmissions');
-  const q = query(submissionsRef, where('status', '==', 'pending_approval'), orderBy('submittedAt', 'desc'));
+  const q = query(submissionsRef, where('status', '==', 'pending_approval'), orderBy('createdAt', 'desc'));
   
   return onSnapshot(q, (querySnapshot) => {
     const submissions = [];
