@@ -12,6 +12,7 @@ const TaskItem = ({ task }) => {
     const { data: gameData, handleTaskAction } = useGameData();
     const { user } = useTelegram();
     const [processing, setProcessing] = useState(false);
+    const [hasVisited, setHasVisited] = useState(false); // Track if user has visited the link
     const userTask = gameData?.userTasks?.[task.id] || { status: 'new' };
     
     const IconComponent = Icons[task.icon] || Icons['Gift'];
@@ -19,14 +20,27 @@ const TaskItem = ({ task }) => {
     const getButtonInfo = () => {
         switch (userTask.status) {
             case 'new':
-                const isTelegram = task.target.includes('t.me') || task.target.startsWith('@');
-                return { text: isTelegram ? 'Join' : 'Start', disabled: false, color: 'bg-brand-yellow text-black' };
+                if (task.type === 'auto') {
+                    // Auto task (Telegram)
+                    if (!hasVisited) {
+                        return { text: 'Join', disabled: false, color: 'bg-brand-yellow text-black' };
+                    } else {
+                        return { text: 'Claim', disabled: false, color: 'bg-green-500 text-white' };
+                    }
+                } else {
+                    // Manual task
+                    if (!hasVisited) {
+                        return { text: 'Start', disabled: false, color: 'bg-brand-yellow text-black' };
+                    } else {
+                        return { text: 'Request', disabled: false, color: 'bg-blue-500 text-white' };
+                    }
+                }
             case 'pending_claim':
                 return { text: 'Claim', disabled: false, color: 'bg-green-500 text-white' };
             case 'pending_approval':
                 return { text: 'Pending', disabled: true, color: 'bg-orange-400 text-white' };
             case 'completed':
-                return { text: 'Completed', disabled: true, color: 'bg-green-600 text-white', icon: <Icons.Check className="h-4 w-4"/> };
+                return { text: 'Done', disabled: true, color: 'bg-green-600 text-white', icon: <Icons.Check className="h-4 w-4"/> };
             case 'rejected':
                 return { text: 'Retry', disabled: false, color: 'bg-red-500 text-white' };
             default:
@@ -61,109 +75,132 @@ const TaskItem = ({ task }) => {
         try {
             if (userTask.status === 'new') {
                 if (task.type === 'auto') {
-                    // First, open the channel/group for user to join
-                    if (task.target.includes('t.me') || task.target.startsWith('@')) {
-                        const channelUrl = task.target.startsWith('@') 
-                            ? `https://t.me/${task.target.replace('@', '')}` 
-                            : task.target;
-                        
-                        // Open the channel in a new window/tab
-                        window.open(channelUrl, '_blank');
-                        
-                        // Wait a moment for user to join
-                        await new Promise(resolve => setTimeout(resolve, 2000));
-                    }
-                    
-                    // Now verify membership
-                    const channelUsername = extractChannelUsername(task.target);
-                    
-                    if (!channelUsername) {
-                        toast({
-                            title: 'Invalid Channel',
-                            description: 'Channel information is not valid.',
-                            variant: 'destructive'
-                        });
-                        return;
-                    }
-                    
-                    console.log('Checking membership for:', channelUsername, 'User ID:', user?.id);
-                    
-                    try {
-                        const apiUrl = `https://api.telegram.org/bot8158970226:AAHcHhlZs5sL_eClx4UoGt9mx0edE2-N-Sw/getChatMember?chat_id=@${channelUsername}&user_id=${user?.id}`;
-                        const response = await fetch(apiUrl);
-                        const data = await response.json();
-                        
-                        console.log('Telegram API Response:', data);
-                        
-                        if (data.ok) {
-                            const status = data.result.status;
-                            console.log('User status in channel:', status);
+                    // Auto task (Telegram) flow
+                    if (!hasVisited) {
+                        // First click: Open channel and mark as visited
+                        if (task.target.includes('t.me') || task.target.startsWith('@')) {
+                            const channelUrl = task.target.startsWith('@') 
+                                ? `https://t.me/${task.target.replace('@', '')}` 
+                                : task.target;
                             
-                            if (['member', 'administrator', 'creator'].includes(status)) {
-                                // User is verified, complete task
-                                await handleTaskAction(task);
-                                
-                                toast({
-                                    title: 'Task Completed! 🎉',
-                                    description: `You earned ${task.reward} USDT!`,
-                                });
-                            } else if (status === 'left' || status === 'kicked') {
-                                toast({
-                                    title: 'Not a Member',
-                                    description: 'Please join the channel first, then try again.',
-                                    variant: 'destructive'
-                                });
-                            } else {
-                                toast({
-                                    title: 'Verification Failed',
-                                    description: `Status: ${status}. Please make sure you joined the channel.`,
-                                    variant: 'destructive'
-                                });
-                            }
-                        } else {
-                            console.error('Telegram API Error:', data);
+                            // Open the channel in a new window/tab
+                            window.open(channelUrl, '_blank');
+                            setHasVisited(true);
                             
-                            if (data.error_code === 400) {
-                                toast({
-                                    title: 'Channel Error',
-                                    description: 'Unable to verify membership. Please contact support.',
-                                    variant: 'destructive'
-                                });
-                            } else if (data.error_code === 403) {
-                                toast({
-                                    title: 'Verification Unavailable',
-                                    description: 'Automatic verification is not available for this channel.',
-                                    variant: 'destructive'
-                                });
-                            } else {
-                                toast({
-                                    title: 'Verification Error',
-                                    description: data.description || 'Please try again later.',
-                                    variant: 'destructive'
-                                });
-                            }
+                            toast({
+                                title: 'Channel Opened',
+                                description: 'Please join the channel and then click "Claim" to verify.',
+                            });
                         }
-                    } catch (apiError) {
-                        console.error('Error calling Telegram API:', apiError);
-                        toast({
-                            title: 'Network Error',
-                            description: 'Unable to verify membership. Please check your connection and try again.',
-                            variant: 'destructive'
-                        });
+                    } else {
+                        // Second click: Verify membership and claim
+                        const channelUsername = extractChannelUsername(task.target);
+                        
+                        if (!channelUsername) {
+                            toast({
+                                title: 'Invalid Channel',
+                                description: 'Channel information is not valid.',
+                                variant: 'destructive'
+                            });
+                            return;
+                        }
+                        
+                        console.log('Checking membership for:', channelUsername, 'User ID:', user?.id);
+                        
+                        try {
+                            const apiUrl = `https://api.telegram.org/bot8158970226:AAHcHhlZs5sL_eClx4UoGt9mx0edE2-N-Sw/getChatMember?chat_id=@${channelUsername}&user_id=${user?.id}`;
+                            const response = await fetch(apiUrl);
+                            const data = await response.json();
+                            
+                            console.log('Telegram API Response:', data);
+                            
+                            if (data.ok) {
+                                const status = data.result.status;
+                                console.log('User status in channel:', status);
+                                
+                                if (['member', 'administrator', 'creator'].includes(status)) {
+                                    // User is verified, complete task
+                                    await handleTaskAction(task);
+                                    
+                                    toast({
+                                        title: 'Task Completed! 🎉',
+                                        description: `You earned ${task.reward} USDT!`,
+                                    });
+                                } else if (status === 'left' || status === 'kicked') {
+                                    toast({
+                                        title: 'Not a Member',
+                                        description: 'Please join the channel first, then try again.',
+                                        variant: 'destructive'
+                                    });
+                                } else {
+                                    toast({
+                                        title: 'Verification Failed',
+                                        description: `Status: ${status}. Please make sure you joined the channel.`,
+                                        variant: 'destructive'
+                                    });
+                                }
+                            } else {
+                                console.error('Telegram API Error:', data);
+                                
+                                if (data.error_code === 400) {
+                                    toast({
+                                        title: 'Channel Error',
+                                        description: 'Unable to verify membership. Please contact support.',
+                                        variant: 'destructive'
+                                    });
+                                } else if (data.error_code === 403) {
+                                    toast({
+                                        title: 'Verification Unavailable',
+                                        description: 'Automatic verification is not available for this channel.',
+                                        variant: 'destructive'
+                                    });
+                                } else {
+                                    toast({
+                                        title: 'Verification Error',
+                                        description: data.description || 'Please try again later.',
+                                        variant: 'destructive'
+                                    });
+                                }
+                            }
+                        } catch (apiError) {
+                            console.error('Error calling Telegram API:', apiError);
+                            toast({
+                                title: 'Network Error',
+                                description: 'Unable to verify membership. Please check your connection and try again.',
+                                variant: 'destructive'
+                            });
+                        }
                     }
                 } else {
-                    // Manual task - open link and submit for approval
-                    if (task.target && (task.target.startsWith('http') || task.target.startsWith('https'))) {
-                        window.open(task.target, '_blank');
+                    // Manual task flow
+                    if (!hasVisited) {
+                        // First click: Open link and mark as visited
+                        if (task.target && (task.target.startsWith('http') || task.target.startsWith('https'))) {
+                            window.open(task.target, '_blank');
+                            setHasVisited(true);
+                            
+                            toast({
+                                title: 'Link Opened',
+                                description: 'Please complete the task and then click "Request" for verification.',
+                            });
+                        } else {
+                            // No link to open, just mark as visited
+                            setHasVisited(true);
+                            
+                            toast({
+                                title: 'Task Started',
+                                description: 'Please complete the task and then click "Request" for verification.',
+                            });
+                        }
+                    } else {
+                        // Second click: Submit for admin approval
+                        await handleTaskAction(task);
+                        
+                        toast({
+                            title: "Task Submitted! 📋",
+                            description: "Your submission is pending admin review.",
+                        });
                     }
-                    
-                    // Submit for admin approval
-                    await handleTaskAction(task);
-                    
-                    toast({
-                        title: "Task Submitted! 📋",
-                        description: "Your submission is pending admin review.",
-                    });
                 }
             } else if (userTask.status === 'pending_claim') {
                 // Claim reward
@@ -175,11 +212,12 @@ const TaskItem = ({ task }) => {
                 });
             } else if (userTask.status === 'rejected') {
                 // Reset and try again
+                setHasVisited(false); // Reset visited state
                 await handleTaskAction(task);
                 
                 toast({
-                    title: "Task Resubmitted",
-                    description: "Your task has been resubmitted for review.",
+                    title: "Task Reset",
+                    description: "You can now retry this task.",
                 });
             }
         } catch (error) {
@@ -280,6 +318,19 @@ const TaskItem = ({ task }) => {
                                 <p className="text-xs text-green-700 flex items-center">
                                     <Icons.CheckCircle className="h-3 w-3 mr-1" />
                                     Task completed successfully
+                                </p>
+                            </div>
+                        )}
+
+                        {/* Instructions for next step */}
+                        {userTask.status === 'new' && hasVisited && (
+                            <div className="mt-3 p-2 bg-blue-50 border border-blue-200 rounded-lg">
+                                <p className="text-xs text-blue-700 flex items-center">
+                                    <Icons.Info className="h-3 w-3 mr-1" />
+                                    {task.type === 'auto' 
+                                        ? 'Now click "Claim" to verify your membership'
+                                        : 'Now click "Request" to submit for admin verification'
+                                    }
                                 </p>
                             </div>
                         )}
@@ -462,4 +513,3 @@ const TasksPage = () => {
 };
 
 export default TasksPage;
-            
