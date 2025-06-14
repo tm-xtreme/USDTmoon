@@ -27,7 +27,7 @@ const ClaimPage = () => {
 
     if (!data) {
         return (
-            <div className="text-center p-10">
+            <div className="text-center p-10 bg-gradient-to-b from-yellow-50 to-orange-50 min-h-screen">
                 <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-brand-yellow mx-auto"></div>
                 <p className="mt-4">Loading Mining...</p>
             </div>
@@ -155,7 +155,7 @@ const ClaimPage = () => {
     const canClaim = data.storageMined > 0 && data.totalMined >= claimFee;
 
     return (
-        <div className="flex flex-col items-center justify-center p-4 text-center h-full bg-gradient-to-b from-blue-50 to-white">
+        <div className="flex flex-col items-center justify-center p-4 text-center h-full bg-gradient-to-b from-yellow-50 to-orange-50 min-h-screen">
             {/* Mining Status Header */}
             <div className="mb-6">
                 <div className="flex items-center justify-center space-x-2 mb-2">
@@ -301,4 +301,3 @@ const ClaimPage = () => {
 };
 
 export default ClaimPage;
-                                           
