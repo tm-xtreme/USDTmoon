@@ -13,11 +13,10 @@ import {
   deleteTask as deleteTaskFromFirebase,
   getPendingWithdrawals,
   getPendingDeposits,
-  updateWithdrawalStatus,
-  updateDepositStatus,
-  updateUserData,
-  getUserData,
-  addTransaction,
+  approveWithdrawal,
+  rejectWithdrawal,
+  approveDeposit,
+  rejectDeposit,
   getAdminStats,
   getAllUsers,
   getPendingTaskSubmissions,
@@ -26,12 +25,7 @@ import {
   approveTaskSubmission as approveTaskSubmissionFirebase,
   rejectTaskSubmission as rejectTaskSubmissionFirebase,
   subscribeToAdminData,
-  subscribeToAdminStats,
-  approveWithdrawal as approveWithdrawalFirebase,
-  rejectWithdrawal as rejectWithdrawalFirebase,
-  approveDeposit as approveDepositFirebase,
-  rejectDeposit as rejectDepositFirebase,
-  getAnalytics
+  subscribeToAdminStats
 } from '@/lib/firebaseService';
 
 const ADMIN_EMAIL = "admin@moonusdt.com";
@@ -41,31 +35,14 @@ export const useAdmin = () => {
     const [isLoggedIn, setIsLoggedIn] = useState(false);
     const [tasks, setTasks] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [adminStats, setAdminStats] = useState({
-        totalUsers: 0,
-        totalTasks: 0,
-        pendingWithdrawals: 0,
-        pendingDeposits: 0,
-        pendingTasks: 0
-    });
+    const [adminStats, setAdminStats] = useState({});
     const [pendingWithdrawals, setPendingWithdrawals] = useState([]);
     const [pendingDeposits, setPendingDeposits] = useState([]);
     const [allUsers, setAllUsers] = useState([]);
     const [withdrawalHistory, setWithdrawalHistory] = useState([]);
     const [depositHistory, setDepositHistory] = useState([]);
     const [pendingTaskSubmissions, setPendingTaskSubmissions] = useState([]);
-    const [analytics, setAnalytics] = useState(null);
-
-    // Debug logging
-    useEffect(() => {
-        console.log('Admin Hook State Update:', {
-            isLoggedIn,
-            pendingTaskSubmissions: pendingTaskSubmissions?.length || 0,
-            pendingWithdrawals: pendingWithdrawals?.length || 0,
-            pendingDeposits: pendingDeposits?.length || 0,
-            adminStats
-        });
-    }, [isLoggedIn, pendingTaskSubmissions, pendingWithdrawals, pendingDeposits, adminStats]);
+    const [analytics, setAnalytics] = useState({});
 
     // Check localStorage for admin session on component mount
     useEffect(() => {
@@ -80,13 +57,11 @@ export const useAdmin = () => {
                     if (sessionData.email === ADMIN_EMAIL && 
                         sessionData.timestamp && 
                         (now - sessionData.timestamp) < 24 * 60 * 60 * 1000) {
-                        console.log('Valid admin session found in localStorage');
                         setIsLoggedIn(true);
                         setLoading(false);
                         return true;
                     } else {
                         // Session expired, remove it
-                        console.log('Admin session expired, removing from localStorage');
                         localStorage.removeItem(ADMIN_STORAGE_KEY);
                     }
                 }
@@ -102,20 +77,14 @@ export const useAdmin = () => {
         
         // If no valid session, wait for Firebase auth state
         if (!hasValidSession) {
-            console.log('No valid session, setting up Firebase auth listener');
             const unsubscribe = onAuthStateChanged(auth, (user) => {
-                console.log('Firebase auth state changed:', user?.email);
                 if (user && user.email === ADMIN_EMAIL) {
                     setIsLoggedIn(true);
-                    // Save to localStorage
                     saveAdminSession(user.email);
                 } else {
                     setIsLoggedIn(false);
-                    // Remove from localStorage
                     removeAdminSession();
-                    // If someone else is logged in, sign them out
                     if (user && user.email !== ADMIN_EMAIL) {
-                        console.log('Non-admin user detected, signing out');
                         signOut(auth);
                     }
                 }
@@ -129,68 +98,42 @@ export const useAdmin = () => {
     // Set up real-time listeners when logged in
     useEffect(() => {
         if (isLoggedIn) {
-            console.log('Admin logged in, setting up data listeners...');
+            console.log('Setting up admin real-time listeners...');
             
-            // Load initial data
-            loadInitialData();
-
-            // Set up real-time listeners for pending items
+            // Set up real-time data listeners
             const unsubscribeAdminData = subscribeToAdminData((type, data) => {
-                console.log(`Real-time update received for ${type}:`, data?.length || 0, 'items');
-                
                 switch (type) {
                     case 'taskSubmissions':
-                        setPendingTaskSubmissions(data || []);
+                        setPendingTaskSubmissions(data);
                         break;
                     case 'withdrawals':
-                        setPendingWithdrawals(data || []);
+                        setPendingWithdrawals(data);
                         break;
                     case 'deposits':
-                        setPendingDeposits(data || []);
+                        setPendingDeposits(data);
                         break;
                     default:
-                        console.warn('Unknown data type received:', type);
+                        break;
                 }
             });
 
-            // Set up real-time listener for admin stats
+            // Set up real-time stats listener
             const unsubscribeAdminStats = subscribeToAdminStats((stats) => {
-                console.log('Real-time admin stats update:', stats);
-                setAdminStats(stats || {
-                    totalUsers: 0,
-                    totalTasks: 0,
-                    pendingWithdrawals: 0,
-                    pendingDeposits: 0,
-                    pendingTasks: 0
-                });
+                setAdminStats(stats);
             });
 
+            // Load initial data
+            loadTasks();
+            loadAllUsers();
+            loadWithdrawalHistory();
+            loadDepositHistory();
+            loadAnalytics();
+
             return () => {
-                console.log('Cleaning up admin data listeners...');
+                console.log('Cleaning up admin listeners...');
                 unsubscribeAdminData();
                 unsubscribeAdminStats();
             };
-        } else {
-            // Clear data when not logged in
-            console.log('Admin not logged in, clearing data...');
-            clearAllData();
-        }
-    }, [isLoggedIn]);
-
-    // Auto-refresh session timestamp every 30 minutes if admin is active
-    useEffect(() => {
-        if (isLoggedIn) {
-            const refreshInterval = setInterval(() => {
-                if (isSessionValid()) {
-                    saveAdminSession(ADMIN_EMAIL);
-                } else {
-                    // Session expired, logout
-                    console.log('Session expired, logging out...');
-                    logout();
-                }
-            }, 30 * 60 * 1000); // 30 minutes
-
-            return () => clearInterval(refreshInterval);
         }
     }, [isLoggedIn]);
 
@@ -203,7 +146,6 @@ export const useAdmin = () => {
                 isAdmin: true
             };
             localStorage.setItem(ADMIN_STORAGE_KEY, JSON.stringify(sessionData));
-            console.log('Admin session saved to localStorage');
         } catch (error) {
             console.error('Error saving admin session:', error);
         }
@@ -213,7 +155,6 @@ export const useAdmin = () => {
     const removeAdminSession = () => {
         try {
             localStorage.removeItem(ADMIN_STORAGE_KEY);
-            console.log('Admin session removed from localStorage');
         } catch (error) {
             console.error('Error removing admin session:', error);
         }
@@ -237,39 +178,20 @@ export const useAdmin = () => {
         return false;
     };
 
-    // Load initial data
-    const loadInitialData = async () => {
-        try {
-            console.log('Loading initial admin data...');
-            await Promise.all([
-                loadTasks(),
-                loadAllUsers(),
-                loadAnalytics()
-            ]);
-            console.log('Initial admin data loaded successfully');
-        } catch (error) {
-            console.error('Error loading initial data:', error);
-        }
-    };
+    // Auto-refresh session timestamp every 30 minutes if admin is active
+    useEffect(() => {
+        if (isLoggedIn) {
+            const refreshInterval = setInterval(() => {
+                if (isSessionValid()) {
+                    saveAdminSession(ADMIN_EMAIL);
+                } else {
+                    logout();
+                }
+            }, 30 * 60 * 1000); // 30 minutes
 
-    // Clear all data
-    const clearAllData = () => {
-        setTasks([]);
-        setAdminStats({
-            totalUsers: 0,
-            totalTasks: 0,
-            pendingWithdrawals: 0,
-            pendingDeposits: 0,
-            pendingTasks: 0
-        });
-        setPendingWithdrawals([]);
-        setPendingDeposits([]);
-        setAllUsers([]);
-        setWithdrawalHistory([]);
-        setDepositHistory([]);
-        setPendingTaskSubmissions([]);
-        setAnalytics(null);
-    };
+            return () => clearInterval(refreshInterval);
+        }
+    }, [isLoggedIn]);
 
     const loadTasks = async () => {
         try {
@@ -292,18 +214,6 @@ export const useAdmin = () => {
         } catch (error) {
             console.error('Error loading all users:', error);
             setAllUsers([]);
-        }
-    };
-
-    const loadAnalytics = async () => {
-        try {
-            console.log('Loading analytics...');
-            const analyticsData = await getAnalytics();
-            setAnalytics(analyticsData);
-            console.log('Analytics loaded:', analyticsData);
-        } catch (error) {
-            console.error('Error loading analytics:', error);
-            setAnalytics(null);
         }
     };
 
@@ -331,13 +241,21 @@ export const useAdmin = () => {
         }
     };
 
+    const loadAnalytics = async () => {
+        try {
+            console.log('Loading analytics...');
+            const analyticsData = await getAnalytics();
+            setAnalytics(analyticsData || {});
+            console.log('Analytics loaded:', analyticsData);
+        } catch (error) {
+            console.error('Error loading analytics:', error);
+            setAnalytics({});
+        }
+    };
+
     const login = async (email, password) => {
         try {
-            console.log('Attempting admin login...');
-            
-            // Validate that the email is the admin email
             if (email !== ADMIN_EMAIL) {
-                console.log('Login attempt with non-admin email:', email);
                 return { 
                     success: false, 
                     error: 'Unauthorized access. Admin access only.' 
@@ -347,16 +265,11 @@ export const useAdmin = () => {
             const userCredential = await signInWithEmailAndPassword(auth, email, password);
             const user = userCredential.user;
             
-            // Double-check the email after successful login
             if (user.email === ADMIN_EMAIL) {
-                console.log('Admin login successful');
                 setIsLoggedIn(true);
-                // Save to localStorage
                 saveAdminSession(user.email);
                 return { success: true };
             } else {
-                // Sign out if somehow wrong user got in
-                console.log('Wrong user logged in, signing out');
                 await signOut(auth);
                 removeAdminSession();
                 return { 
@@ -398,24 +311,27 @@ export const useAdmin = () => {
 
     const logout = async () => {
         try {
-            console.log('Logging out admin...');
             await signOut(auth);
             setIsLoggedIn(false);
-            clearAllData();
+            setTasks([]);
+            setAdminStats({});
+            setPendingWithdrawals([]);
+            setPendingDeposits([]);
+            setAllUsers([]);
+            setWithdrawalHistory([]);
+            setDepositHistory([]);
+            setPendingTaskSubmissions([]);
+            setAnalytics({});
             removeAdminSession();
-            console.log('Admin logout successful');
         } catch (error) {
             console.error('Logout error:', error);
-            // Even if Firebase logout fails, clear local state and storage
             setIsLoggedIn(false);
-            clearAllData();
             removeAdminSession();
         }
     };
 
     const resetPassword = async (email = ADMIN_EMAIL) => {
         try {
-            // Validate that the email is the admin email
             if (email !== ADMIN_EMAIL) {
                 return { 
                     success: false, 
@@ -456,10 +372,9 @@ export const useAdmin = () => {
 
     const addTask = async (task) => {
         try {
-            console.log('Adding new task:', task);
             const taskId = await addTaskToFirebase(task);
             await loadTasks(); // Reload tasks
-            console.log('Task added successfully with ID:', taskId);
+            await loadAdminStats(); // Reload stats
             return taskId;
         } catch (error) {
             console.error('Error adding task:', error);
@@ -469,10 +384,8 @@ export const useAdmin = () => {
 
     const updateTask = async (updatedTask) => {
         try {
-            console.log('Updating task:', updatedTask);
             await updateTaskInFirebase(updatedTask.id, updatedTask);
             await loadTasks(); // Reload tasks
-            console.log('Task updated successfully');
         } catch (error) {
             console.error('Error updating task:', error);
             throw error;
@@ -481,10 +394,9 @@ export const useAdmin = () => {
 
     const removeTask = async (taskId) => {
         try {
-            console.log('Removing task:', taskId);
             await deleteTaskFromFirebase(taskId);
             await loadTasks(); // Reload tasks
-            console.log('Task removed successfully');
+            await loadAdminStats(); // Reload stats
         } catch (error) {
             console.error('Error removing task:', error);
             throw error;
@@ -493,167 +405,123 @@ export const useAdmin = () => {
 
     const approveWithdrawal = async (withdrawalId) => {
         try {
-            console.log('Approving withdrawal:', withdrawalId);
-            await approveWithdrawalFirebase(withdrawalId);
-            console.log('Withdrawal approved successfully');
+            await updateWithdrawalStatus(withdrawalId, 'approved');
+            await loadPendingTransactions();
+            await loadAdminStats(); // Reload stats
             return true;
         } catch (error) {
             console.error('Error approving withdrawal:', error);
-            throw error;
+            return false;
         }
     };
 
-    const rejectWithdrawal = async (withdrawalId, userId, amount, reason = '') => {
+    const rejectWithdrawal = async (withdrawalId, userId, amount) => {
         try {
-            console.log('Rejecting withdrawal:', { withdrawalId, userId, amount, reason });
-            await rejectWithdrawalFirebase(withdrawalId, userId, amount, reason);
-            console.log('Withdrawal rejected successfully');
+            await updateWithdrawalStatus(withdrawalId, 'rejected');
+            // Refund the amount to user
+            const userData = await getUser Data(userId);
+            if (userData) {
+                await updateUser Data(userId, {
+                    totalMined: userData.totalMined + amount
+                });
+                
+                // Add refund transaction
+                await addTransaction(userId, {
+                    type: 'withdrawal_refund',
+                    amount: amount,
+                    status: 'completed',
+                    reason: 'Withdrawal rejected by admin'
+                });
+            }
+            await loadPendingTransactions();
+            await loadAdminStats(); // Reload stats
             return true;
         } catch (error) {
             console.error('Error rejecting withdrawal:', error);
-            throw error;
+            return false;
         }
     };
 
     const approveDeposit = async (depositId, userId, amount) => {
         try {
-            console.log('Approving deposit:', { depositId, userId, amount });
-            await approveDepositFirebase(depositId, userId, amount);
-            console.log('Deposit approved successfully');
+            await updateDepositStatus(depositId, 'approved');
+            // Add amount to user balance
+            const userData = await getUser Data(userId);
+            if (userData) {
+                await updateUser Data(userId, {
+                    totalMined: userData.totalMined + amount
+                });
+                
+                // Add deposit transaction
+                await addTransaction(userId, {
+                    type: 'deposit_approved',
+                    amount: amount,
+                    status: 'completed',
+                    reason: 'Deposit approved by admin'
+                });
+            }
+            await loadPendingTransactions();
+            await loadAdminStats(); // Reload stats
             return true;
         } catch (error) {
             console.error('Error approving deposit:', error);
-            throw error;
+            return false;
         }
     };
 
-    const rejectDeposit = async (depositId, reason = '') => {
+    const rejectDeposit = async (depositId) => {
         try {
-            console.log('Rejecting deposit:', { depositId, reason });
-            await rejectDepositFirebase(depositId, reason);
-            console.log('Deposit rejected successfully');
+            await updateDepositStatus(depositId, 'rejected');
+            await loadPendingTransactions();
+            await loadAdminStats(); // Reload stats
             return true;
         } catch (error) {
             console.error('Error rejecting deposit:', error);
-            throw error;
+            return false;
         }
     };
 
     const approveTaskSubmission = async (submissionId, userId, taskReward) => {
         try {
-            console.log('Approving task submission:', { submissionId, userId, taskReward });
             await approveTaskSubmissionFirebase(submissionId, userId, taskReward);
-            console.log('Task submission approved successfully');
+            await loadPendingTaskSubmissions(); // Reload pending submissions
+            await loadAdminStats(); // Reload stats
             return true;
         } catch (error) {
             console.error('Error approving task submission:', error);
-            throw error;
+            return false;
         }
     };
 
     const rejectTaskSubmission = async (submissionId, reason = '') => {
         try {
-            console.log('Rejecting task submission:', { submissionId, reason });
             await rejectTaskSubmissionFirebase(submissionId, reason);
-            console.log('Task submission rejected successfully');
+            await loadPendingTaskSubmissions(); // Reload pending submissions
+            await loadAdminStats(); // Reload stats
             return true;
         } catch (error) {
             console.error('Error rejecting task submission:', error);
-            throw error;
+            return false;
         }
     };
 
     const refreshData = async () => {
         try {
-            console.log('Refreshing all admin data...');
             await Promise.all([
                 loadTasks(),
+                loadAdminStats(),
+                loadPendingTransactions(),
                 loadAllUsers(),
-                loadWithdrawalHistory(),
-                loadDepositHistory(),
-                loadAnalytics()
+                loadPendingTaskSubmissions()
             ]);
-            console.log('All admin data refreshed successfully');
         } catch (error) {
             console.error('Error refreshing data:', error);
-            throw error;
         }
-    };
-
-    // Manual data loading functions (for fallback)
-    const loadPendingData = async () => {
-        try {
-            console.log('Manually loading pending data...');
-            const [submissions, withdrawals, deposits] = await Promise.all([
-                getPendingTaskSubmissions(),
-                getPendingWithdrawals(),
-                getPendingDeposits()
-            ]);
-            
-            setPendingTaskSubmissions(submissions || []);
-            setPendingWithdrawals(withdrawals || []);
-            setPendingDeposits(deposits || []);
-            
-            console.log('Pending data loaded manually:', {
-                submissions: submissions?.length || 0,
-                withdrawals: withdrawals?.length || 0,
-                deposits: deposits?.length || 0
-            });
-        } catch (error) {
-            console.error('Error loading pending data manually:', error);
-        }
-    };
-
-    const loadAdminStatsManually = async () => {
-        try {
-            console.log('Manually loading admin stats...');
-            const stats = await getAdminStats();
-            setAdminStats(stats || {
-                totalUsers: 0,
-                totalTasks: 0,
-                pendingWithdrawals: 0,
-                pendingDeposits: 0,
-                pendingTasks: 0
-            });
-            console.log('Admin stats loaded manually:', stats);
-        } catch (error) {
-            console.error('Error loading admin stats manually:', error);
-        }
-    };
-
-    // Utility functions
-    const getTotalPendingCount = () => {
-        return (pendingTaskSubmissions?.length || 0) + 
-               (pendingWithdrawals?.length || 0) + 
-               (pendingDeposits?.length || 0);
-    };
-
-    const hasAnyPendingItems = () => {
-        return getTotalPendingCount() > 0;
-    };
-
-    // Debug function to check data state
-    const debugDataState = () => {
-        const state = {
-            isLoggedIn,
-            loading,
-            tasksCount: tasks?.length || 0,
-            pendingTaskSubmissionsCount: pendingTaskSubmissions?.length || 0,
-            pendingWithdrawalsCount: pendingWithdrawals?.length || 0,
-            pendingDepositsCount: pendingDeposits?.length || 0,
-            adminStats,
-            totalPendingCount: getTotalPendingCount()
-        };
-        console.log('Admin Hook Debug State:', state);
-        return state;
     };
 
     return {
-        // Authentication state
         isLoggedIn,
         loading,
-        
-        // Data
         tasks,
         adminStats,
         pendingWithdrawals,
@@ -662,53 +530,22 @@ export const useAdmin = () => {
         withdrawalHistory,
         depositHistory,
         pendingTaskSubmissions,
-        analytics,
-        
-        // Authentication functions
         login,
         logout,
         resetPassword,
-        
-        // Task management functions
         addTask,
         updateTask,
         removeTask,
-        
-        // Withdrawal management functions
         approveWithdrawal,
         rejectWithdrawal,
-        
-        // Deposit management functions
         approveDeposit,
         rejectDeposit,
-        
-        // Task submission management functions
         approveTaskSubmission,
         rejectTaskSubmission,
-        
-        // Data loading functions
         loadWithdrawalHistory,
         loadDepositHistory,
         refreshData,
-        loadPendingData,
-        loadAdminStatsManually,
-        
-        // Utility functions
-        getTotalPendingCount,
-        hasAnyPendingItems,
-        debugDataState,
-        
-        // Session management
         adminEmail: ADMIN_EMAIL,
-        isSessionValid,
-        
-        // Manual refresh functions (for debugging)
-        manualRefresh: {
-            tasks: loadTasks,
-            users: loadAllUsers,
-            analytics: loadAnalytics,
-            pendingData: loadPendingData,
-            stats: loadAdminStatsManually
-        }
+        isSessionValid
     };
 };
