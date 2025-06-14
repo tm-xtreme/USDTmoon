@@ -501,8 +501,10 @@ export const useGameData = () => {
         }
     };
 
+    // At the end of your useGameData hook, update the return statement:
     return { 
         data, 
+        setData,  // Add this line
         loading,
         handleClaimStorage, 
         handleTaskAction, 
