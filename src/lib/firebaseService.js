@@ -366,17 +366,17 @@ export const sendAdminNotification = async (message) => {
   }
 };
 
-// Transaction Management - UPDATED FOR NESTED STRUCTURE
+// Transaction Management - CORRECTED FOR ACTUAL FIRESTORE STRUCTURE
 export const addTransaction = async (userId, transactionData) => {
   try {
-    // Add to the nested transactions collection: transactions > transactions
-    const transactionsRef = collection(db, 'transactions', 'transactions');
+    // Add directly to transactions collection: transactions/{auto-generated-id}
+    const transactionsRef = collection(db, 'transactions');
     const docRef = await addDoc(transactionsRef, {
       userId: userId.toString(),
       ...transactionData,
       amount: parseFloat(transactionData.amount),
       createdAt: serverTimestamp(),
-      date: new Date().toISOString() // Keep both for compatibility
+      date: new Date().toISOString()
     });
     console.log('Transaction added with ID:', docRef.id);
     return docRef.id;
@@ -388,11 +388,13 @@ export const addTransaction = async (userId, transactionData) => {
 
 export const getUserTransactions = async (userId, limitCount = 50) => {
   try {
-    // Query the nested transactions collection: transactions > transactions > documents
-    const transactionsRef = collection(db, 'transactions', 'transactions');
+    console.log('Getting transactions for user:', userId);
+    
+    // Query directly from transactions collection
+    const transactionsRef = collection(db, 'transactions');
     const q = query(
       transactionsRef, 
-      where('userId', '==', userId.toString()), // Ensure userId is string
+      where('userId', '==', userId.toString()),
       orderBy('createdAt', 'desc'),
       limit(limitCount)
     );
@@ -405,7 +407,6 @@ export const getUserTransactions = async (userId, limitCount = 50) => {
       transactions.push({ 
         id: doc.id, 
         ...data,
-        // Ensure amount is a number
         amount: parseFloat(data.amount) || 0
       });
     });
@@ -414,6 +415,74 @@ export const getUserTransactions = async (userId, limitCount = 50) => {
     return transactions;
   } catch (error) {
     console.error('Error getting transactions:', error);
+    throw error;
+  }
+};
+
+// Get all transactions (for admin)
+export const getAllTransactions = async (limitCount = 1000) => {
+  try {
+    const transactionsRef = collection(db, 'transactions');
+    const q = query(transactionsRef, orderBy('createdAt', 'desc'), limit(limitCount));
+    const querySnapshot = await getDocs(q);
+    
+    const transactions = [];
+    querySnapshot.forEach((doc) => {
+      const data = doc.data();
+      transactions.push({ 
+        id: doc.id, 
+        ...data,
+        amount: parseFloat(data.amount) || 0
+      });
+    });
+    
+    return transactions;
+  } catch (error) {
+    console.error('Error getting all transactions:', error);
+    throw error;
+  }
+};
+
+// Update transaction status
+export const updateTransactionStatus = async (transactionId, status, additionalData = {}) => {
+  try {
+    const transactionRef = doc(db, 'transactions', transactionId);
+    await updateDoc(transactionRef, {
+      status,
+      ...additionalData,
+      updatedAt: serverTimestamp()
+    });
+    return true;
+  } catch (error) {
+    console.error('Error updating transaction status:', error);
+    throw error;
+  }
+};
+
+// Get specific transaction
+export const getTransaction = async (transactionId) => {
+  try {
+    const transactionRef = doc(db, 'transactions', transactionId);
+    const transactionSnap = await getDoc(transactionRef);
+    
+    if (transactionSnap.exists()) {
+      return { id: transactionSnap.id, ...transactionSnap.data() };
+    }
+    return null;
+  } catch (error) {
+    console.error('Error getting transaction:', error);
+    throw error;
+  }
+};
+
+// Delete transaction
+export const deleteTransaction = async (transactionId) => {
+  try {
+    const transactionRef = doc(db, 'transactions', transactionId);
+    await deleteDoc(transactionRef);
+    return true;
+  } catch (error) {
+    console.error('Error deleting transaction:', error);
     throw error;
   }
 };
@@ -566,7 +635,7 @@ export const updateDepositStatus = async (depositId, status) => {
   }
 };
 
-// Task Approval/Rejection Functions - UPDATED TO USE NESTED TRANSACTIONS
+// Task Approval/Rejection Functions - UPDATED TO USE CORRECT TRANSACTIONS
 export const approveTaskSubmission = async (submissionId, userId, taskReward) => {
   try {
     // Update submission status
@@ -579,7 +648,7 @@ export const approveTaskSubmission = async (submissionId, userId, taskReward) =>
         totalMined: userData.totalMined + taskReward
       });
       
-      // Add transaction record using the updated function
+      // Add transaction record using the corrected function
       await addTransaction(userId, {
         type: 'task_reward',
         amount: taskReward,
@@ -753,7 +822,7 @@ export const subscribeToAdminNotifications = (callback) => {
 
 // Real-time listener for user transactions
 export const subscribeToUserTransactions = (userId, callback) => {
-  const transactionsRef = collection(db, 'transactions', 'transactions');
+  const transactionsRef = collection(db, 'transactions');
   const q = query(
     transactionsRef, 
     where('userId', '==', userId.toString()),
@@ -774,4 +843,4 @@ export const subscribeToUserTransactions = (userId, callback) => {
     callback(transactions);
   });
 };
-                     
+      
