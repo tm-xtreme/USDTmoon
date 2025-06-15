@@ -37,6 +37,13 @@ const TaskItem = ({ task, userSubmission }) => {
     
     const IconComponent = Icons[task.icon] || Icons['Gift'];
 
+    // Debug log for this specific task
+    console.log(`Task ${task.id} (${task.name}):`, {
+        userSubmission,
+        mappedStatus: userTask.status,
+        originalStatus: userSubmission?.status
+    });
+
     const getButtonInfo = () => {
         switch (userTask.status) {
             case 'new':
@@ -210,6 +217,10 @@ const TaskItem = ({ task, userSubmission }) => {
                                         Manual
                                     </span>
                                 )}
+                                {/* Debug status indicator */}
+                                <span className="text-xs bg-gray-100 text-gray-700 px-2 py-1 rounded-full font-medium">
+                                    {userTask.status}
+                                </span>
                             </div>
                         </div>
                         
@@ -352,7 +363,13 @@ const TasksPage = () => {
             try {
                 console.log('Fetching user submissions for:', currentUserId);
                 const submissions = await getUserTaskSubmissions(currentUserId.toString());
-                console.log('User submissions:', submissions);
+                console.log('Raw user submissions from Firebase:', submissions);
+                
+                // Log each submission for debugging
+                Object.entries(submissions || {}).forEach(([taskId, submission]) => {
+                    console.log(`TaskId ${taskId}:`, submission);
+                });
+                
                 setUserSubmissions(submissions || {});
                 userIdRef.current = currentUserId;
             } catch (error) {
@@ -377,28 +394,44 @@ const TasksPage = () => {
     // Filter tasks based on submission status
     const availableTasks = tasks.filter(task => {
         const submission = userSubmissions[task.id];
+        console.log(`Filtering task ${task.id} (${task.name}):`, {
+            hasSubmission: !!submission,
+            submissionStatus: submission?.status,
+            isAvailable: !submission || submission.status === 'rejected'
+        });
         // Available if: no submission OR submission is rejected
         return !submission || submission.status === 'rejected';
     });
 
     const pendingTasks = tasks.filter(task => {
         const submission = userSubmissions[task.id];
+        console.log(`Filtering task ${task.id} for pending:`, {
+            hasSubmission: !!submission,
+            submissionStatus: submission?.status,
+            isPending: submission && submission.status === 'pending_approval'
+        });
         // Pending if: submission exists and status is pending_approval
         return submission && submission.status === 'pending_approval';
     });
 
     const completedTasks = tasks.filter(task => {
         const submission = userSubmissions[task.id];
+        console.log(`Filtering task ${task.id} for completed:`, {
+            hasSubmission: !!submission,
+            submissionStatus: submission?.status,
+            isCompleted: submission && submission.status === 'approved'
+        });
         // Completed if: submission exists and status is approved
         return submission && submission.status === 'approved';
     });
 
-    console.log('Filtering results:');
-    console.log('- Available tasks:', availableTasks.length);
-    console.log('- Pending tasks:', pendingTasks.length);
-    console.log('- Completed tasks:', completedTasks.length);
-    console.log('- Total tasks:', tasks.length);
-    console.log('- User submissions count:', Object.keys(userSubmissions).length);
+    console.log('=== FILTERING SUMMARY ===');
+    console.log('Current user ID:', getUserId(gameData));
+    console.log('Total tasks:', tasks.length);
+    console.log('User submissions object:', userSubmissions);
+    console.log('Available tasks:', availableTasks.length, availableTasks.map(t => t.id));
+    console.log('Pending tasks:', pendingTasks.length, pendingTasks.map(t => t.id));
+    console.log('Completed tasks:', completedTasks.length, completedTasks.map(t => t.id));
     
     return (
         <div className="p-4 space-y-6 bg-gradient-to-b from-yellow-50 to-orange-50 min-h-screen">
@@ -514,23 +547,38 @@ const TasksPage = () => {
                 </Card>
             )}
 
-            {/* Debug Info - Remove this in production */}
+            {/* Enhanced Debug Info */}
             {process.env.NODE_ENV === 'development' && (
                 <Card className="bg-gray-100 border-gray-300">
                     <CardContent className="p-4">
                         <h3 className="font-bold mb-2">Debug Info:</h3>
                         <div className="text-xs space-y-1">
-                            <p>Tasks loaded: {tasks.length}</p>
-                            <p>User submissions: {Object.keys(userSubmissions).length}</p>
-                            <p>GameData available: {gameData ? 'Yes' : 'No'}</p>
-                            <p>User ID: {getUserId(gameData) || 'Not found'}</p>
-                            <p>Data fetched: {dataFetched ? 'Yes' : 'No'}</p>
-                            <p>Available: {availableTasks.length}, Pending: {pendingTasks.length}, Completed: {completedTasks.length}</p>
+                            <p><strong>Current User ID:</strong> {getUserId(gameData) || 'Not found'}</p>
+                            <p><strong>Tasks loaded:</strong> {tasks.length}</p>
+                            <p><strong>User submissions count:</strong> {Object.keys(userSubmissions).length}</p>
+                            <p><strong>Available:</strong> {availableTasks.length}, <strong>Pending:</strong> {pendingTasks.length}, <strong>Completed:</strong> {completedTasks.length}</p>
+                            
                             <details className="mt-2">
-                                <summary className="cursor-pointer font-semibold">User Submissions</summary>
+                                <summary className="cursor-pointer font-semibold">Raw User Submissions</summary>
                                 <pre className="mt-1 text-xs bg-white p-2 rounded overflow-auto max-h-32">
                                     {JSON.stringify(userSubmissions, null, 2)}
                                 </pre>
+                            </details>
+                            
+                            <details className="mt-2">
+                                <summary className="cursor-pointer font-semibold">Task IDs</summary>
+                                <div className="mt-1 text-xs bg-white p-2 rounded">
+                                    {tasks.map(task => (
+                                        <div key={task.id} className="mb-1">
+                                            <strong>{task.name}:</strong> {task.id}
+                                            {userSubmissions[task.id] && (
+                                                <span className="ml-2 text-blue-600">
+                                                    (Status: {userSubmissions[task.id].status})
+                                                </span>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
                             </details>
                         </div>
                     </CardContent>
