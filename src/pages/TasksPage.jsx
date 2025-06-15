@@ -3,7 +3,7 @@ import { useToast } from '@/components/ui/use-toast';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { useGameData } from '@/hooks/useGameData';
-import { getAllTasks, getUserTaskSubmissions } from '@/lib/firebaseService';
+import { getAllTasks, getUserTaskSubmissions, updateTaskSubmission } from '@/lib/firebaseService';
 import * as Icons from 'lucide-react';
 
 const TaskItem = ({ task, userSubmission, onRetry }) => {
@@ -12,10 +12,25 @@ const TaskItem = ({ task, userSubmission, onRetry }) => {
     const [processing, setProcessing] = useState(false);
     const [hasVisited, setHasVisited] = useState(false);
     
+    // Map taskSubmissions status to the original UI status for compatibility
+    const mapTaskStatus = (submissionStatus) => {
+        switch (submissionStatus) {
+            case 'pending_approval':
+                return 'pending_approval';
+            case 'approved':
+                return 'completed';
+            case 'rejected':
+                return 'rejected';
+            default:
+                return 'new';
+        }
+    };
+
     // Get user task status from submission
     const userTask = userSubmission 
         ? { 
             ...userSubmission, 
+            status: mapTaskStatus(userSubmission.status),
             rejectionReason: userSubmission.rejectionReason
           }
         : { status: 'new' };
@@ -51,39 +66,90 @@ const TaskItem = ({ task, userSubmission, onRetry }) => {
         try {
             if (userTask.status === 'new') {
                 if (task.type === 'auto') {
+                    // Auto task (Telegram) flow
                     if (!hasVisited) {
-                        const channelUrl = task.target.startsWith('@') ? `https://t.me/${task.target.replace('@', '')}` : task.target;
-                        window.open(channelUrl, '_blank');
-                        setHasVisited(true);
-                        toast({ title: 'Channel Opened', description: 'Please join the channel and then click "Claim" to verify.' });
+                        // First click: Open channel and mark as visited
+                        if (task.target && (task.target.includes('t.me') || task.target.startsWith('@'))) {
+                            const channelUrl = task.target.startsWith('@') 
+                                ? `https://t.me/${task.target.replace('@', '')}` 
+                                : task.target;
+                            
+                            window.open(channelUrl, '_blank');
+                            setHasVisited(true);
+                            
+                            toast({
+                                title: 'Channel Opened',
+                                description: 'Please join the channel and then click "Claim" to verify.',
+                            });
+                        }
                     } else {
+                        // Second click: Use hook's handleTaskAction for verification
                         const result = await handleTaskAction(task);
+                        
                         if (result) {
-                            toast({ title: 'Task Completed! 🎉', description: `You earned ${task.reward} USDT!` });
-                            setHasVisited(false);
+                            toast({
+                                title: 'Task Completed! 🎉',
+                                description: `You earned ${task.reward} USDT!`,
+                            });
+                            setHasVisited(false); // Reset for future use
                         } else {
+                            // Reset to initial state if verification failed
                             setHasVisited(false);
-                            toast({ title: 'Verification Failed', description: 'Please make sure you joined the channel and try again.', variant: 'destructive' });
+                            toast({
+                                title: 'Verification Failed',
+                                description: 'Please make sure you joined the channel and try again.',
+                                variant: 'destructive'
+                            });
                         }
                     }
                 } else {
+                    // Manual task flow
                     if (!hasVisited) {
-                        window.open(task.target, '_blank');
+                        // First click: Open link and mark as visited
+                        if (task.target && (task.target.startsWith('http') || task.target.startsWith('https'))) {
+                            window.open(task.target, '_blank');
+                        }
                         setHasVisited(true);
-                        toast({ title: 'Task Started', description: 'Please complete the task and then click "Request" for verification.' });
+                        
+                        toast({
+                            title: 'Task Started',
+                            description: 'Please complete the task and then click "Request" for verification.',
+                        });
                     } else {
-                        // Move task to pending section
-                        await handleTaskAction(task);
-                        toast({ title: "Task Submitted! 📋", description: "Your submission is pending admin review." });
-                        setHasVisited(false);
+                        // Second click: Submit for admin approval
+                        const result = await handleTaskAction(task);
+                        
+                        if (result) {
+                            toast({
+                                title: "Task Submitted! 📋",
+                                description: "Your submission is pending admin review.",
+                            });
+                            setHasVisited(false); // Reset for future use
+                        } else {
+                            setHasVisited(false);
+                            toast({
+                                title: "Submission Failed",
+                                description: "Failed to submit task. Please try again.",
+                                variant: 'destructive'
+                            });
+                        }
                     }
                 }
             } else if (userTask.status === 'pending_claim') {
+                // Claim reward
                 const result = await handleTaskAction(task);
+                
                 if (result) {
-                    toast({ title: "Reward Claimed! 💰", description: `You received ${task.reward} USDT!` });
+                    toast({
+                        title: "Reward Claimed! 💰",
+                        description: `You received ${task.reward} USDT!`,
+                    });
                 } else {
-                    toast({ title: "Claim Failed", description: "Failed to claim reward. Please try again.", variant: 'destructive' });
+                    toast({
+                        title: "Claim Failed",
+                        description: "Failed to claim reward. Please try again.",
+                        variant: 'destructive'
+                    });
                 }
             } else if (userTask.status === 'rejected') {
                 // Retry functionality
@@ -91,7 +157,16 @@ const TaskItem = ({ task, userSubmission, onRetry }) => {
             }
         } catch (error) {
             console.error('Error handling task action:', error);
-            toast({ title: "Error", description: "Something went wrong. Please try again.", variant: "destructive" });
+            
+            if (userTask.status === 'new') {
+                setHasVisited(false);
+            }
+            
+            toast({
+                title: "Error",
+                description: "Something went wrong. Please try again.",
+                variant: "destructive"
+            });
         } finally {
             setProcessing(false);
         }
@@ -103,14 +178,32 @@ const TaskItem = ({ task, userSubmission, onRetry }) => {
         <Card className="bg-white rounded-2xl shadow-md border border-gray-100 hover:shadow-lg transition-all duration-300">
             <CardContent className="p-4">
                 <div className="flex items-start space-x-4">
+                    {/* Icon */}
                     <div className="flex-shrink-0 p-3 bg-brand-yellow/20 rounded-xl">
                         <IconComponent className="h-6 w-6 text-brand-yellow" />
                     </div>
+                    
+                    {/* Content */}
                     <div className="flex-1 min-w-0">
                         <div className="flex items-start justify-between mb-2">
                             <h3 className="font-bold text-lg text-gray-900 leading-tight">{task.name}</h3>
+                            <div className="flex items-center space-x-1 ml-2">
+                                {task.type === 'auto' && (
+                                    <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full font-medium">
+                                        Auto
+                                    </span>
+                                )}
+                                {task.type === 'manual' && (
+                                    <span className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded-full font-medium">
+                                        Manual
+                                    </span>
+                                )}
+                            </div>
                         </div>
+                        
                         <p className="text-sm text-gray-600 mb-3 leading-relaxed">{task.description}</p>
+                        
+                        {/* Reward and Status */}
                         <div className="flex items-center justify-between">
                             <div className="flex items-center space-x-2">
                                 <div className="flex items-center space-x-1">
@@ -118,11 +211,14 @@ const TaskItem = ({ task, userSubmission, onRetry }) => {
                                     <span className="text-sm font-bold text-green-600">+{task.reward} USDT</span>
                                 </div>
                             </div>
+                            
                             <Button 
                                 onClick={handleAction} 
                                 disabled={disabled || processing} 
                                 size="sm"
-                                className={`font-semibold px-4 py-2 rounded-lg transition-all duration-300 ${color} ${!disabled && !processing ? 'hover:scale-105 shadow-md' : 'opacity-70'}`}
+                                className={`font-semibold px-4 py-2 rounded-lg transition-all duration-300 ${color} ${
+                                    !disabled && !processing ? 'hover:scale-105 shadow-md' : 'opacity-70'
+                                }`}
                             >
                                 {processing ? (
                                     <div className="flex items-center space-x-2">
@@ -130,10 +226,53 @@ const TaskItem = ({ task, userSubmission, onRetry }) => {
                                         <span className="text-xs">Loading...</span>
                                     </div>
                                 ) : (
-                                    <span className="text-sm">{text}</span>
+                                    <div className="flex items-center space-x-1">
+                                        <span className="text-sm">{text}</span>
+                                    </div>
                                 )}
                             </Button>
                         </div>
+                        
+                        {/* Status Messages */}
+                        {userTask.status === 'pending_approval' && (
+                            <div className="mt-3 p-2 bg-orange-50 border border-orange-200 rounded-lg">
+                                <p className="text-xs text-orange-700 flex items-center">
+                                    <Icons.Clock className="h-3 w-3 mr-1" />
+                                    Waiting for admin approval
+                                </p>
+                            </div>
+                        )}
+                        
+                        {userTask.status === 'rejected' && userTask.rejectionReason && (
+                            <div className="mt-3 p-2 bg-red-50 border border-red-200 rounded-lg">
+                                <p className="text-xs text-red-700 flex items-center">
+                                    <Icons.AlertCircle className="h-3 w-3 mr-1" />
+                                    Rejected: {userTask.rejectionReason}
+                                </p>
+                            </div>
+                        )}
+                        
+                        {userTask.status === 'completed' && (
+                            <div className="mt-3 p-2 bg-green-50 border border-green-200 rounded-lg">
+                                <p className="text-xs text-green-700 flex items-center">
+                                    <Icons.CheckCircle className="h-3 w-3 mr-1" />
+                                    Task completed successfully
+                                </p>
+                            </div>
+                        )}
+
+                        {/* Instructions for next step */}
+                        {userTask.status === 'new' && hasVisited && (
+                            <div className="mt-3 p-2 bg-blue-50 border border-blue-200 rounded-lg">
+                                <p className="text-xs text-blue-700 flex items-center">
+                                    <Icons.Info className="h-3 w-3 mr-1" />
+                                    {task.type === 'auto' 
+                                        ? 'Now click "Claim" to verify your membership'
+                                        : 'Now click "Request" to submit for admin verification'
+                                    }
+                                </p>
+                            </div>
+                        )}
                     </div>
                 </div>
             </CardContent>
@@ -144,10 +283,16 @@ const TaskItem = ({ task, userSubmission, onRetry }) => {
 const TasksPage = () => {
     const { data: gameData } = useGameData();
     const [tasks, setTasks] = useState([]);
-    const [userSubmissions, setUserSubmissions] = useState({});
+    const [userSubmissions, setUser Submissions] = useState({});
     const [loading, setLoading] = useState(true);
     const { toast } = useToast();
     const userIdRef = useRef(null);
+
+    // Extract stable user ID
+    const getUser Id = (gameData) => {
+        if (!gameData) return null;
+        return gameData.userId || gameData.id || gameData.telegramId || null;
+    };
 
     useEffect(() => {
         const fetchTasks = async () => {
@@ -168,24 +313,24 @@ const TasksPage = () => {
     }, [toast]);
 
     useEffect(() => {
-        const fetchUserSubmissions = async () => {
-            const currentUserId = gameData?.userId;
+        const fetchUser Submissions = async () => {
+            const currentUser Id = getUser Id(gameData);
             if (!currentUser Id) return;
 
-            if (userIdRef.current === currentUserId) return;
+            if (userIdRef.current === currentUser Id) return;
 
             try {
                 console.log('Fetching user submissions for:', currentUser Id);
-                const submissions = await getUserTaskSubmissions(currentUser Id.toString());
+                const submissions = await getUser TaskSubmissions(currentUser Id.toString());
                 console.log('User  submissions:', submissions);
-                setUserSubmissions(submissions || {});
-                userIdRef.current = currentUserId;
+                setUser Submissions(submissions || {});
+                userIdRef.current = currentUser Id;
             } catch (error) {
                 console.error('Error fetching user submissions:', error);
             }
         };
 
-        fetchUserSubmissions();
+        fetchUser Submissions();
     }, [gameData?.userId]);
 
     if (loading) {
@@ -218,6 +363,21 @@ const TasksPage = () => {
     console.log('Available tasks:', availableTasks.length);
     console.log('Pending tasks:', pendingTasks.length);
     console.log('Completed tasks:', completedTasks.length);
+
+    const handleRetry = async (task) => {
+        try {
+            // Reset the task status to 'new' for retry
+            await updateTaskSubmission(task.id, { status: 'new' });
+            toast({ title: "Task Reset", description: "You can now retry the task.", variant: "success" });
+            // Refresh user submissions to reflect the change
+            const currentUser Id = getUser Id(gameData);
+            const submissions = await getUser TaskSubmissions(currentUser Id.toString());
+            setUser Submissions(submissions || {});
+        } catch (error) {
+            console.error('Error retrying task:', error);
+            toast({ title: "Error", description: "Failed to reset task. Please try again.", variant: "destructive" });
+        }
+    };
 
     return (
         <div className="p-4 space-y-6 bg-gradient-to-b from-yellow-50 to-orange-50 min-h-screen">
@@ -276,6 +436,7 @@ const TasksPage = () => {
                                 key={task.id} 
                                 task={task} 
                                 userSubmission={userSubmissions[task.id]} 
+                                onRetry={handleRetry} 
                             />
                         ))}
                     </div>
@@ -295,6 +456,7 @@ const TasksPage = () => {
                                 key={task.id} 
                                 task={task} 
                                 userSubmission={userSubmissions[task.id]} 
+                                onRetry={handleRetry} 
                             />
                         ))}
                     </div>
