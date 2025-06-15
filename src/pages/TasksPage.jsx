@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useToast } from '@/components/ui/use-toast';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -298,64 +298,70 @@ const TasksPage = () => {
     const [tasks, setTasks] = useState([]);
     const [userSubmissions, setUserSubmissions] = useState({});
     const [loading, setLoading] = useState(true);
+    const [dataFetched, setDataFetched] = useState(false);
     const { toast } = useToast();
+    const userIdRef = useRef(null);
 
-    // Debug logging
-    console.log('TasksPage - gameData:', gameData);
-    console.log('TasksPage - gameLoading:', gameLoading);
-    console.log('TasksPage - loading:', loading);
+    // Extract stable user ID
+    const getUserId = (gameData) => {
+        if (!gameData) return null;
+        return gameData.userId || gameData.id || gameData.telegramId || null;
+    };
 
     useEffect(() => {
-        const fetchData = async () => {
+        const fetchTasks = async () => {
+            if (dataFetched) return; // Prevent multiple fetches
+            
             try {
-                console.log('Starting to fetch data...');
-                setLoading(true);
-                
-                // Always fetch tasks first
                 console.log('Fetching tasks...');
+                setLoading(true);
                 const tasksData = await getAllTasks();
                 console.log('Fetched tasks:', tasksData);
                 setTasks(tasksData || []);
-                
-                // Try to get user ID from different possible locations
-                let userId = null;
-                if (gameData?.userId) {
-                    userId = gameData.userId;
-                } else if (gameData?.id) {
-                    userId = gameData.id;
-                } else if (gameData?.telegramId) {
-                    userId = gameData.telegramId;
-                }
-                
-                console.log('Detected userId:', userId);
-                
-                // Fetch user task submissions if user ID is available
-                if (userId) {
-                    console.log('Fetching user submissions for userId:', userId);
-                    const submissions = await getUserTaskSubmissions(userId.toString());
-                    console.log('User submissions:', submissions);
-                    setUserSubmissions(submissions || {});
-                } else {
-                    console.log('No userId found, setting empty submissions');
-                    setUserSubmissions({});
-                }
-                
+                setDataFetched(true);
             } catch (error) {
-                console.error('Error fetching data:', error);
+                console.error('Error fetching tasks:', error);
                 toast({
                     title: "Error",
                     description: "Failed to load tasks. Please try again.",
                     variant: "destructive"
                 });
             } finally {
-                console.log('Finished fetching data');
                 setLoading(false);
             }
         };
 
-        // Don't wait for gameData, fetch tasks immediately
-        fetchData();
-    }, [toast, gameData]); // Depend on gameData changes
+        fetchTasks();
+    }, []); // Only run once
+
+    useEffect(() => {
+        const fetchUserSubmissions = async () => {
+            const currentUserId = getUserId(gameData);
+            
+            if (!currentUserId) {
+                console.log('No user ID available yet');
+                return;
+            }
+
+            // Only fetch if user ID changed
+            if (userIdRef.current === currentUserId) {
+                console.log('User ID unchanged, skipping fetch');
+                return;
+            }
+
+            try {
+                console.log('Fetching user submissions for:', currentUserId);
+                const submissions = await getUserTaskSubmissions(currentUserId.toString());
+                console.log('User submissions:', submissions);
+                setUserSubmissions(submissions || {});
+                userIdRef.current = currentUserId;
+            } catch (error) {
+                console.error('Error fetching user submissions:', error);
+            }
+        };
+
+        fetchUserSubmissions();
+    }, [gameData?.userId, gameData?.id, gameData?.telegramId]); // Only depend on stable ID fields
 
     if (loading) {
         return (
@@ -368,161 +374,5 @@ const TasksPage = () => {
         );
     }
 
-    console.log('All tasks:', tasks);
-    console.log('User submissions:', userSubmissions);
-
     // Filter tasks based on submission status
     const availableTasks = tasks.filter(task => {
-        const submission = userSubmissions[task.id];
-        // Available if: no submission OR submission is rejected
-        return !submission || submission.status === 'rejected';
-    });
-
-    const pendingTasks = tasks.filter(task => {
-        const submission = userSubmissions[task.id];
-        // Pending if: submission exists and status is pending_approval
-        return submission && submission.status === 'pending_approval';
-    });
-
-    const completedTasks = tasks.filter(task => {
-        const submission = userSubmissions[task.id];
-        // Completed if: submission exists and status is approved
-        return submission && submission.status === 'approved';
-    });
-
-    console.log('Available tasks:', availableTasks.length);
-    console.log('Pending tasks:', pendingTasks.length);
-    console.log('Completed tasks:', completedTasks.length);
-    
-    return (
-        <div className="p-4 space-y-6 bg-gradient-to-b from-yellow-50 to-orange-50 min-h-screen">
-            {/* Header */}
-            <div className="text-center">
-                <h1 className="text-3xl font-bold mb-2 text-brand-text">Tasks & Rewards</h1>
-                <p className="text-gray-600 mb-4">Complete tasks to earn extra USDT!</p>
-                
-                {/* Stats */}
-                <div className="grid grid-cols-3 gap-3 max-w-sm mx-auto">
-                    <div className="bg-white rounded-xl p-3 shadow-sm border border-gray-100">
-                        <p className="text-xl font-bold text-blue-600">{availableTasks.length}</p>
-                        <p className="text-xs text-gray-500">Available</p>
-                    </div>
-                    <div className="bg-white rounded-xl p-3 shadow-sm border border-gray-100">
-                        <p className="text-xl font-bold text-orange-600">{pendingTasks.length}</p>
-                        <p className="text-xs text-gray-500">Pending</p>
-                    </div>
-                    <div className="bg-white rounded-xl p-3 shadow-sm border border-gray-100">
-                        <p className="text-xl font-bold text-green-600">{completedTasks.length}</p>
-                        <p className="text-xs text-gray-500">Completed</p>
-                    </div>
-                </div>
-            </div>
-
-            {/* Available Tasks */}
-            {availableTasks.length > 0 && (
-                <div>
-                    <h2 className="text-xl font-bold mb-4 flex items-center text-brand-text">
-                        <Icons.Target className="h-6 w-6 mr-2 text-blue-600" />
-                        Available Tasks ({availableTasks.length})
-                    </h2>
-                    <div className="space-y-3">
-                        {availableTasks.map(task => (
-                            <TaskItem 
-                                key={task.id} 
-                                task={task} 
-                                userSubmission={userSubmissions[task.id]} 
-                            />
-                        ))}
-                    </div>
-                </div>
-            )}
-
-            {/* Pending Tasks */}
-            {pendingTasks.length > 0 && (
-                <div>
-                    <h2 className="text-xl font-bold mb-4 flex items-center text-brand-text">
-                        <Icons.Clock className="h-6 w-6 mr-2 text-orange-600" />
-                        Pending Tasks ({pendingTasks.length})
-                    </h2>
-                    <div className="space-y-3">
-                        {pendingTasks.map(task => (
-                            <TaskItem 
-                                key={task.id} 
-                                task={task} 
-                                userSubmission={userSubmissions[task.id]} 
-                            />
-                        ))}
-                    </div>
-                </div>
-            )}
-
-            {/* Completed Tasks */}
-            {completedTasks.length > 0 && (
-                <div>
-                    <h2 className="text-xl font-bold mb-4 flex items-center text-brand-text">
-                        <Icons.CheckCircle className="h-6 w-6 mr-2 text-green-600" />
-                        Completed Tasks ({completedTasks.length})
-                    </h2>
-                    <div className="space-y-3">
-                        {completedTasks.map(task => (
-                            <TaskItem 
-                                key={task.id} 
-                                task={task} 
-                                userSubmission={userSubmissions[task.id]} 
-                            />
-                        ))}
-                    </div>
-                </div>
-            )}
-
-            {/* No Tasks Available */}
-            {tasks.length === 0 && (
-                <Card className="bg-white rounded-2xl shadow-md border border-gray-100">
-                    <CardContent className="p-8 text-center">
-                        <Icons.Inbox className="h-16 w-16 mx-auto mb-4 text-gray-300" />
-                        <h3 className="text-xl font-bold text-gray-600 mb-2">No Tasks Available</h3>
-                        <p className="text-gray-500 mb-4">
-                            There are currently no tasks available. New tasks are added regularly!
-                        </p>
-                        <Button 
-                            onClick={() => window.location.reload()} 
-                            className="bg-brand-yellow text-black font-bold hover:bg-yellow-400"
-                        >
-                            <Icons.RefreshCw className="h-4 w-4 mr-2" />
-                            Refresh Tasks
-                        </Button>
-                    </CardContent>
-                </Card>
-            )}
-
-            {/* All Tasks Completed */}
-            {tasks.length > 0 && availableTasks.length === 0 && pendingTasks.length === 0 && (
-                <Card className="bg-gradient-to-r from-green-50 to-emerald-50 border-green-200">
-                    <CardContent className="p-6 text-center">
-                        <Icons.Trophy className="h-12 w-12 mx-auto mb-3 text-green-600" />
-                        <h3 className="text-lg font-bold text-green-800 mb-2">All Tasks Completed! 🎉</h3>
-                        <p className="text-green-700 text-sm">
-                            Great job! You've completed all available tasks. Check back later for new opportunities to earn more USDT.
-                        </p>
-                    </CardContent>
-                </Card>
-            )}
-
-            {/* Debug Info - Remove this in production */}
-            {process.env.NODE_ENV === 'development' && (
-                <Card className="bg-gray-100 border-gray-300">
-                    <CardContent className="p-4">
-                        <h3 className="font-bold mb-2">Debug Info:</h3>
-                        <p className="text-xs">Tasks loaded: {tasks.length}</p>
-                        <p className="text-xs">User submissions: {Object.keys(userSubmissions).length}</p>
-                        <p className="text-xs">GameData available: {gameData ? 'Yes' : 'No'}</p>
-                        <p className="text-xs">User ID: {gameData?.userId || gameData?.id || gameData?.telegramId || 'Not found'}</p>
-                    </CardContent>
-                </Card>
-            )}
-        </div>
-    );
-};
-
-export default TasksPage;
-                                
