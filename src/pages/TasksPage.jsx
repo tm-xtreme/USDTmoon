@@ -89,12 +89,6 @@ const TaskItem = ({ task, userSubmission }) => {
                                 title: 'Channel Opened',
                                 description: 'Please join the channel and then click "Claim" to verify.',
                             });
-                        } else {
-                            toast({
-                                title: 'Invalid Link',
-                                description: 'This task does not have a valid Telegram link.',
-                                variant: 'destructive'
-                            });
                         }
                     } else {
                         // Second click: Use hook's handleTaskAction for verification
@@ -148,6 +142,22 @@ const TaskItem = ({ task, userSubmission }) => {
                             });
                         }
                     }
+                }
+            } else if (userTask.status === 'pending_claim') {
+                // Claim reward
+                const result = await handleTaskAction(task);
+                
+                if (result) {
+                    toast({
+                        title: "Reward Claimed! 💰",
+                        description: `You received ${task.reward} USDT!`,
+                    });
+                } else {
+                    toast({
+                        title: "Claim Failed",
+                        description: "Failed to claim reward. Please try again.",
+                        variant: 'destructive'
+                    });
                 }
             } else if (userTask.status === 'rejected') {
                 // Reset and try again
@@ -491,4 +501,3 @@ const TasksPage = () => {
 };
 
 export default TasksPage;
-                                
