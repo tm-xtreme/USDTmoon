@@ -6,7 +6,7 @@ import { useGameData } from '@/hooks/useGameData';
 import { getAllTasks, getUserTaskSubmissions } from '@/lib/firebaseService';
 import * as Icons from 'lucide-react';
 
-const TaskItem = ({ task, userSubmission }) => {
+const TaskItem = ({ task, userSubmission, onTaskUpdate }) => {
     const { toast } = useToast();
     const { handleTaskAction } = useGameData();
     const [processing, setProcessing] = useState(false);
@@ -36,13 +36,6 @@ const TaskItem = ({ task, userSubmission }) => {
         : { status: 'new' };
     
     const IconComponent = Icons[task.icon] || Icons['Gift'];
-
-    // Debug log for this specific task
-    console.log(`Task ${task.id} (${task.name}):`, {
-        userSubmission,
-        mappedStatus: userTask.status,
-        originalStatus: userSubmission?.status
-    });
 
     const getButtonInfo = () => {
         switch (userTask.status) {
@@ -106,9 +99,9 @@ const TaskItem = ({ task, userSubmission }) => {
                                 title: 'Task Completed! 🎉',
                                 description: `You earned ${task.reward} USDT!`,
                             });
-                            setHasVisited(false); // Reset for future use
+                            setHasVisited(false);
+                            onTaskUpdate(); // Refresh data
                         } else {
-                            // Reset to initial state if verification failed
                             setHasVisited(false);
                             toast({
                                 title: 'Verification Failed',
@@ -139,7 +132,8 @@ const TaskItem = ({ task, userSubmission }) => {
                                 title: "Task Submitted! 📋",
                                 description: "Your submission is pending admin review.",
                             });
-                            setHasVisited(false); // Reset for future use
+                            setHasVisited(false);
+                            onTaskUpdate(); // Refresh data to move task to pending section
                         } else {
                             setHasVisited(false);
                             toast({
@@ -159,6 +153,7 @@ const TaskItem = ({ task, userSubmission }) => {
                         title: "Reward Claimed! 💰",
                         description: `You received ${task.reward} USDT!`,
                     });
+                    onTaskUpdate(); // Refresh data
                 } else {
                     toast({
                         title: "Claim Failed",
@@ -167,12 +162,13 @@ const TaskItem = ({ task, userSubmission }) => {
                     });
                 }
             } else if (userTask.status === 'rejected') {
-                // Reset and try again
+                // Retry functionality - reset to new state
                 setHasVisited(false);
                 toast({
-                    title: "Try Again",
-                    description: "You can now retry this task.",
+                    title: "Task Reset",
+                    description: "You can now retry this task from the beginning.",
                 });
+                onTaskUpdate(); // Refresh data to move task back to available section
             }
         } catch (error) {
             console.error('Error handling task action:', error);
@@ -217,10 +213,6 @@ const TaskItem = ({ task, userSubmission }) => {
                                         Manual
                                     </span>
                                 )}
-                                {/* Debug status indicator */}
-                                <span className="text-xs bg-gray-100 text-gray-700 px-2 py-1 rounded-full font-medium">
-                                    {userTask.status}
-                                </span>
                             </div>
                         </div>
                         
@@ -305,7 +297,7 @@ const TaskItem = ({ task, userSubmission }) => {
 };
 
 const TasksPage = () => {
-    const { data: gameData, loading: gameLoading } = useGameData();
+    const { data: gameData } = useGameData();
     const [tasks, setTasks] = useState([]);
     const [userSubmissions, setUserSubmissions] = useState({});
     const [loading, setLoading] = useState(true);
@@ -319,15 +311,26 @@ const TasksPage = () => {
         return gameData.userId || gameData.id || gameData.telegramId || null;
     };
 
+    // Function to refresh user submissions
+    const refreshUserSubmissions = async () => {
+        const currentUserId = getUserId(gameData);
+        if (!currentUserId) return;
+
+        try {
+            const submissions = await getUserTaskSubmissions(currentUserId.toString());
+            setUserSubmissions(submissions || {});
+        } catch (error) {
+            console.error('Error refreshing user submissions:', error);
+        }
+    };
+
     useEffect(() => {
         const fetchTasks = async () => {
             if (dataFetched) return; // Prevent multiple fetches
             
             try {
-                console.log('Fetching tasks...');
                 setLoading(true);
                 const tasksData = await getAllTasks();
-                console.log('Fetched tasks:', tasksData);
                 setTasks(tasksData || []);
                 setDataFetched(true);
             } catch (error) {
@@ -350,26 +353,16 @@ const TasksPage = () => {
             const currentUserId = getUserId(gameData);
             
             if (!currentUserId) {
-                console.log('No user ID available yet');
                 return;
             }
 
             // Only fetch if user ID changed
             if (userIdRef.current === currentUserId) {
-                console.log('User ID unchanged, skipping fetch');
                 return;
             }
 
             try {
-                console.log('Fetching user submissions for:', currentUserId);
                 const submissions = await getUserTaskSubmissions(currentUserId.toString());
-                console.log('Raw user submissions from Firebase:', submissions);
-                
-                // Log each submission for debugging
-                Object.entries(submissions || {}).forEach(([taskId, submission]) => {
-                    console.log(`TaskId ${taskId}:`, submission);
-                });
-                
                 setUserSubmissions(submissions || {});
                 userIdRef.current = currentUserId;
             } catch (error) {
@@ -378,7 +371,7 @@ const TasksPage = () => {
         };
 
         fetchUserSubmissions();
-    }, [gameData?.userId, gameData?.id, gameData?.telegramId]); // Only depend on stable ID fields
+    }, [gameData?.userId]); // Only depend on userId to prevent continuous fetching
 
     if (loading) {
         return (
@@ -394,44 +387,21 @@ const TasksPage = () => {
     // Filter tasks based on submission status
     const availableTasks = tasks.filter(task => {
         const submission = userSubmissions[task.id];
-        console.log(`Filtering task ${task.id} (${task.name}):`, {
-            hasSubmission: !!submission,
-            submissionStatus: submission?.status,
-            isAvailable: !submission || submission.status === 'rejected'
-        });
         // Available if: no submission OR submission is rejected
         return !submission || submission.status === 'rejected';
     });
 
     const pendingTasks = tasks.filter(task => {
         const submission = userSubmissions[task.id];
-        console.log(`Filtering task ${task.id} for pending:`, {
-            hasSubmission: !!submission,
-            submissionStatus: submission?.status,
-            isPending: submission && submission.status === 'pending_approval'
-        });
         // Pending if: submission exists and status is pending_approval
         return submission && submission.status === 'pending_approval';
     });
 
     const completedTasks = tasks.filter(task => {
         const submission = userSubmissions[task.id];
-        console.log(`Filtering task ${task.id} for completed:`, {
-            hasSubmission: !!submission,
-            submissionStatus: submission?.status,
-            isCompleted: submission && submission.status === 'approved'
-        });
         // Completed if: submission exists and status is approved
         return submission && submission.status === 'approved';
     });
-
-    console.log('=== FILTERING SUMMARY ===');
-    console.log('Current user ID:', getUserId(gameData));
-    console.log('Total tasks:', tasks.length);
-    console.log('User submissions object:', userSubmissions);
-    console.log('Available tasks:', availableTasks.length, availableTasks.map(t => t.id));
-    console.log('Pending tasks:', pendingTasks.length, pendingTasks.map(t => t.id));
-    console.log('Completed tasks:', completedTasks.length, completedTasks.map(t => t.id));
     
     return (
         <div className="p-4 space-y-6 bg-gradient-to-b from-yellow-50 to-orange-50 min-h-screen">
@@ -470,6 +440,7 @@ const TasksPage = () => {
                                 key={task.id} 
                                 task={task} 
                                 userSubmission={userSubmissions[task.id]} 
+                                onTaskUpdate={refreshUserSubmissions}
                             />
                         ))}
                     </div>
@@ -489,6 +460,7 @@ const TasksPage = () => {
                                 key={task.id} 
                                 task={task} 
                                 userSubmission={userSubmissions[task.id]} 
+                                onTaskUpdate={refreshUserSubmissions}
                             />
                         ))}
                     </div>
@@ -508,6 +480,7 @@ const TasksPage = () => {
                                 key={task.id} 
                                 task={task} 
                                 userSubmission={userSubmissions[task.id]} 
+                                onTaskUpdate={refreshUserSubmissions}
                             />
                         ))}
                     </div>
@@ -546,47 +519,9 @@ const TasksPage = () => {
                     </CardContent>
                 </Card>
             )}
-
-            {/* Enhanced Debug Info */}
-            {process.env.NODE_ENV === 'development' && (
-                <Card className="bg-gray-100 border-gray-300">
-                    <CardContent className="p-4">
-                        <h3 className="font-bold mb-2">Debug Info:</h3>
-                        <div className="text-xs space-y-1">
-                            <p><strong>Current User ID:</strong> {getUserId(gameData) || 'Not found'}</p>
-                            <p><strong>Tasks loaded:</strong> {tasks.length}</p>
-                            <p><strong>User submissions count:</strong> {Object.keys(userSubmissions).length}</p>
-                            <p><strong>Available:</strong> {availableTasks.length}, <strong>Pending:</strong> {pendingTasks.length}, <strong>Completed:</strong> {completedTasks.length}</p>
-                            
-                            <details className="mt-2">
-                                <summary className="cursor-pointer font-semibold">Raw User Submissions</summary>
-                                <pre className="mt-1 text-xs bg-white p-2 rounded overflow-auto max-h-32">
-                                    {JSON.stringify(userSubmissions, null, 2)}
-                                </pre>
-                            </details>
-                            
-                            <details className="mt-2">
-                                <summary className="cursor-pointer font-semibold">Task IDs</summary>
-                                <div className="mt-1 text-xs bg-white p-2 rounded">
-                                    {tasks.map(task => (
-                                        <div key={task.id} className="mb-1">
-                                            <strong>{task.name}:</strong> {task.id}
-                                            {userSubmissions[task.id] && (
-                                                <span className="ml-2 text-blue-600">
-                                                    (Status: {userSubmissions[task.id].status})
-                                                </span>
-                                            )}
-                                        </div>
-                                    ))}
-                                </div>
-                            </details>
-                        </div>
-                    </CardContent>
-                </Card>
-            )}
         </div>
     );
 };
 
 export default TasksPage;
-                    
+                        
