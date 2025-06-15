@@ -447,10 +447,7 @@ export const useGameData = () => {
     };
 
     return { 
-        data: {
-            ...data,
-            userTasks // Include userTasks in the returned data
-        }, 
+        data, 
         setData,
         loading,
         handleClaimStorage, 
