@@ -3,7 +3,7 @@ import { useToast } from '@/components/ui/use-toast';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { useGameData } from '@/hooks/useGameData';
-import { getAllTasks, getUser TaskSubmissions } from '@/lib/firebaseService';
+import { getAllTasks, getUserTaskSubmissions } from '@/lib/firebaseService';
 import * as Icons from 'lucide-react';
 
 const TaskItem = ({ task, userSubmission, onRetry }) => {
