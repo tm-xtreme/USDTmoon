@@ -376,3 +376,169 @@ const TasksPage = () => {
 
     // Filter tasks based on submission status
     const availableTasks = tasks.filter(task => {
+        const submission = userSubmissions[task.id];
+        // Available if: no submission OR submission is rejected
+        return !submission || submission.status === 'rejected';
+    });
+
+    const pendingTasks = tasks.filter(task => {
+        const submission = userSubmissions[task.id];
+        // Pending if: submission exists and status is pending_approval
+        return submission && submission.status === 'pending_approval';
+    });
+
+    const completedTasks = tasks.filter(task => {
+        const submission = userSubmissions[task.id];
+        // Completed if: submission exists and status is approved
+        return submission && submission.status === 'approved';
+    });
+
+    console.log('Filtering results:');
+    console.log('- Available tasks:', availableTasks.length);
+    console.log('- Pending tasks:', pendingTasks.length);
+    console.log('- Completed tasks:', completedTasks.length);
+    console.log('- Total tasks:', tasks.length);
+    console.log('- User submissions count:', Object.keys(userSubmissions).length);
+    
+    return (
+        <div className="p-4 space-y-6 bg-gradient-to-b from-yellow-50 to-orange-50 min-h-screen">
+            {/* Header */}
+            <div className="text-center">
+                <h1 className="text-3xl font-bold mb-2 text-brand-text">Tasks & Rewards</h1>
+                <p className="text-gray-600 mb-4">Complete tasks to earn extra USDT!</p>
+                
+                {/* Stats */}
+                <div className="grid grid-cols-3 gap-3 max-w-sm mx-auto">
+                    <div className="bg-white rounded-xl p-3 shadow-sm border border-gray-100">
+                        <p className="text-xl font-bold text-blue-600">{availableTasks.length}</p>
+                        <p className="text-xs text-gray-500">Available</p>
+                    </div>
+                    <div className="bg-white rounded-xl p-3 shadow-sm border border-gray-100">
+                        <p className="text-xl font-bold text-orange-600">{pendingTasks.length}</p>
+                        <p className="text-xs text-gray-500">Pending</p>
+                    </div>
+                    <div className="bg-white rounded-xl p-3 shadow-sm border border-gray-100">
+                        <p className="text-xl font-bold text-green-600">{completedTasks.length}</p>
+                        <p className="text-xs text-gray-500">Completed</p>
+                    </div>
+                </div>
+            </div>
+
+            {/* Available Tasks */}
+            {availableTasks.length > 0 && (
+                <div>
+                    <h2 className="text-xl font-bold mb-4 flex items-center text-brand-text">
+                        <Icons.Target className="h-6 w-6 mr-2 text-blue-600" />
+                        Available Tasks ({availableTasks.length})
+                    </h2>
+                    <div className="space-y-3">
+                        {availableTasks.map(task => (
+                            <TaskItem 
+                                key={task.id} 
+                                task={task} 
+                                userSubmission={userSubmissions[task.id]} 
+                            />
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {/* Pending Tasks */}
+            {pendingTasks.length > 0 && (
+                <div>
+                    <h2 className="text-xl font-bold mb-4 flex items-center text-brand-text">
+                        <Icons.Clock className="h-6 w-6 mr-2 text-orange-600" />
+                        Pending Tasks ({pendingTasks.length})
+                    </h2>
+                    <div className="space-y-3">
+                        {pendingTasks.map(task => (
+                            <TaskItem 
+                                key={task.id} 
+                                task={task} 
+                                userSubmission={userSubmissions[task.id]} 
+                            />
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {/* Completed Tasks */}
+            {completedTasks.length > 0 && (
+                <div>
+                    <h2 className="text-xl font-bold mb-4 flex items-center text-brand-text">
+                        <Icons.CheckCircle className="h-6 w-6 mr-2 text-green-600" />
+                        Completed Tasks ({completedTasks.length})
+                    </h2>
+                    <div className="space-y-3">
+                        {completedTasks.map(task => (
+                            <TaskItem 
+                                key={task.id} 
+                                task={task} 
+                                userSubmission={userSubmissions[task.id]} 
+                            />
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {/* No Tasks Available */}
+            {tasks.length === 0 && (
+                <Card className="bg-white rounded-2xl shadow-md border border-gray-100">
+                    <CardContent className="p-8 text-center">
+                        <Icons.Inbox className="h-16 w-16 mx-auto mb-4 text-gray-300" />
+                        <h3 className="text-xl font-bold text-gray-600 mb-2">No Tasks Available</h3>
+                        <p className="text-gray-500 mb-4">
+                            There are currently no tasks available. New tasks are added regularly!
+                        </p>
+                        <Button 
+                            onClick={() => window.location.reload()} 
+                            className="bg-brand-yellow text-black font-bold hover:bg-yellow-400"
+                        >
+                            <Icons.RefreshCw className="h-4 w-4 mr-2" />
+                            Refresh Tasks
+                        </Button>
+                    </CardContent>
+                </Card>
+            )}
+
+            {/* All Tasks Completed */}
+            {tasks.length > 0 && availableTasks.length === 0 && pendingTasks.length === 0 && (
+                <Card className="bg-gradient-to-r from-green-50 to-emerald-50 border-green-200">
+                    <CardContent className="p-6 text-center">
+                        <Icons.Trophy className="h-12 w-12 mx-auto mb-3 text-green-600" />
+                        <h3 className="text-lg font-bold text-green-800 mb-2">All Tasks Completed! 🎉</h3>
+                        <p className="text-green-700 text-sm">
+                            Great job! You've completed all available tasks. Check back later for new opportunities to earn more USDT.
+                        </p>
+                    </CardContent>
+                </Card>
+            )}
+
+            {/* Debug Info - Remove this in production */}
+            {process.env.NODE_ENV === 'development' && (
+                <Card className="bg-gray-100 border-gray-300">
+                    <CardContent className="p-4">
+                        <h3 className="font-bold mb-2">Debug Info:</h3>
+                        <div className="text-xs space-y-1">
+                            <p>Tasks loaded: {tasks.length}</p>
+                            <p>User submissions: {Object.keys(userSubmissions).length}</p>
+                            <p>GameData available: {gameData ? 'Yes' : 'No'}</p>
+                            <p>User ID: {getUserId(gameData) || 'Not found'}</p>
+                            <p>Data fetched: {dataFetched ? 'Yes' : 'No'}</p>
+                            <p>Available: {availableTasks.length}, Pending: {pendingTasks.length}, Completed: {completedTasks.length}</p>
+                            <details className="mt-2">
+                                <summary className="cursor-pointer font-semibold">User Submissions</summary>
+                                <pre className="mt-1 text-xs bg-white p-2 rounded overflow-auto max-h-32">
+                                    {JSON.stringify(userSubmissions, null, 2)}
+                                </pre>
+                            </details>
+                        </div>
+                    </CardContent>
+                </Card>
+            )}
+        </div>
+    );
+};
+
+export default TasksPage;
+                    
