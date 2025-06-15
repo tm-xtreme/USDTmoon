@@ -72,7 +72,7 @@ const TaskItem = ({ task, userSubmission, onTaskUpdate }) => {
         setProcessing(true);
         
         try {
-            if (userTask.status === 'new') {
+            if (userTask.status === 'new' || userTask.status === 'rejected') {
                 if (task.type === 'auto') {
                     // Auto task (Telegram) flow
                     if (!hasVisited) {
@@ -99,9 +99,10 @@ const TaskItem = ({ task, userSubmission, onTaskUpdate }) => {
                                 title: 'Task Completed! 🎉',
                                 description: `You earned ${task.reward} USDT!`,
                             });
-                            setHasVisited(false);
-                            onTaskUpdate(); // Refresh data
+                            setHasVisited(false); // Reset for future use
+                            onTaskUpdate?.(); // Trigger refresh
                         } else {
+                            // Reset to initial state if verification failed
                             setHasVisited(false);
                             toast({
                                 title: 'Verification Failed',
@@ -132,8 +133,8 @@ const TaskItem = ({ task, userSubmission, onTaskUpdate }) => {
                                 title: "Task Submitted! 📋",
                                 description: "Your submission is pending admin review.",
                             });
-                            setHasVisited(false);
-                            onTaskUpdate(); // Refresh data to move task to pending section
+                            setHasVisited(false); // Reset for future use
+                            onTaskUpdate?.(); // Trigger refresh to move to pending section
                         } else {
                             setHasVisited(false);
                             toast({
@@ -153,7 +154,7 @@ const TaskItem = ({ task, userSubmission, onTaskUpdate }) => {
                         title: "Reward Claimed! 💰",
                         description: `You received ${task.reward} USDT!`,
                     });
-                    onTaskUpdate(); // Refresh data
+                    onTaskUpdate?.(); // Trigger refresh
                 } else {
                     toast({
                         title: "Claim Failed",
@@ -161,19 +162,11 @@ const TaskItem = ({ task, userSubmission, onTaskUpdate }) => {
                         variant: 'destructive'
                     });
                 }
-            } else if (userTask.status === 'rejected') {
-                // Retry functionality - reset to new state
-                setHasVisited(false);
-                toast({
-                    title: "Task Reset",
-                    description: "You can now retry this task from the beginning.",
-                });
-                onTaskUpdate(); // Refresh data to move task back to available section
             }
         } catch (error) {
             console.error('Error handling task action:', error);
             
-            if (userTask.status === 'new') {
+            if (userTask.status === 'new' || userTask.status === 'rejected') {
                 setHasVisited(false);
             }
             
@@ -278,7 +271,7 @@ const TaskItem = ({ task, userSubmission, onTaskUpdate }) => {
                         )}
 
                         {/* Instructions for next step */}
-                        {userTask.status === 'new' && hasVisited && (
+                        {(userTask.status === 'new' || userTask.status === 'rejected') && hasVisited && (
                             <div className="mt-3 p-2 bg-blue-50 border border-blue-200 rounded-lg">
                                 <p className="text-xs text-blue-700 flex items-center">
                                     <Icons.Info className="h-3 w-3 mr-1" />
@@ -297,13 +290,16 @@ const TaskItem = ({ task, userSubmission, onTaskUpdate }) => {
 };
 
 const TasksPage = () => {
-    const { data: gameData } = useGameData();
+    const { data: gameData, loading: gameLoading } = useGameData();
     const [tasks, setTasks] = useState([]);
     const [userSubmissions, setUserSubmissions] = useState({});
     const [loading, setLoading] = useState(true);
-    const [dataFetched, setDataFetched] = useState(false);
     const { toast } = useToast();
+    
+    // Use refs to prevent unnecessary re-fetches
+    const dataFetchedRef = useRef(false);
     const userIdRef = useRef(null);
+    const submissionsFetchedRef = useRef(false);
 
     // Extract stable user ID
     const getUserId = (gameData) => {
@@ -311,28 +307,18 @@ const TasksPage = () => {
         return gameData.userId || gameData.id || gameData.telegramId || null;
     };
 
-    // Function to refresh user submissions
-    const refreshUserSubmissions = async () => {
-        const currentUserId = getUserId(gameData);
-        if (!currentUserId) return;
-
-        try {
-            const submissions = await getUserTaskSubmissions(currentUserId.toString());
-            setUserSubmissions(submissions || {});
-        } catch (error) {
-            console.error('Error refreshing user submissions:', error);
-        }
-    };
-
+    // Fetch tasks only once
     useEffect(() => {
         const fetchTasks = async () => {
-            if (dataFetched) return; // Prevent multiple fetches
+            if (dataFetchedRef.current) return;
             
             try {
+                console.log('Fetching tasks...');
                 setLoading(true);
                 const tasksData = await getAllTasks();
+                console.log('Fetched tasks:', tasksData);
                 setTasks(tasksData || []);
-                setDataFetched(true);
+                dataFetchedRef.current = true;
             } catch (error) {
                 console.error('Error fetching tasks:', error);
                 toast({
@@ -346,32 +332,55 @@ const TasksPage = () => {
         };
 
         fetchTasks();
-    }, []); // Only run once
+    }, [toast]);
 
+    // Fetch user submissions when user ID is available or changes
     useEffect(() => {
         const fetchUserSubmissions = async () => {
             const currentUserId = getUserId(gameData);
             
             if (!currentUserId) {
+                console.log('No user ID available yet');
                 return;
             }
 
-            // Only fetch if user ID changed
-            if (userIdRef.current === currentUserId) {
+            // Only fetch if user ID changed or first time
+            if (userIdRef.current === currentUserId && submissionsFetchedRef.current) {
+                console.log('User ID unchanged and already fetched, skipping');
                 return;
             }
 
             try {
+                console.log('Fetching user submissions for:', currentUserId);
                 const submissions = await getUserTaskSubmissions(currentUserId.toString());
+                console.log('Fetched user submissions:', submissions);
+                
                 setUserSubmissions(submissions || {});
                 userIdRef.current = currentUserId;
+                submissionsFetchedRef.current = true;
             } catch (error) {
                 console.error('Error fetching user submissions:', error);
             }
         };
 
-        fetchUserSubmissions();
-    }, [gameData?.userId]); // Only depend on userId to prevent continuous fetching
+        if (!gameLoading) {
+            fetchUserSubmissions();
+        }
+    }, [gameData, gameLoading]);
+
+    // Function to refresh user submissions after task actions
+    const handleTaskUpdate = async () => {
+        const currentUserId = getUserId(gameData);
+        if (!currentUserId) return;
+
+        try {
+            console.log('Refreshing user submissions after task action...');
+            const submissions = await getUserTaskSubmissions(currentUserId.toString());
+            setUserSubmissions(submissions || {});
+        } catch (error) {
+            console.error('Error refreshing user submissions:', error);
+        }
+    };
 
     if (loading) {
         return (
@@ -440,7 +449,7 @@ const TasksPage = () => {
                                 key={task.id} 
                                 task={task} 
                                 userSubmission={userSubmissions[task.id]} 
-                                onTaskUpdate={refreshUserSubmissions}
+                                onTaskUpdate={handleTaskUpdate}
                             />
                         ))}
                     </div>
@@ -460,7 +469,7 @@ const TasksPage = () => {
                                 key={task.id} 
                                 task={task} 
                                 userSubmission={userSubmissions[task.id]} 
-                                onTaskUpdate={refreshUserSubmissions}
+                                onTaskUpdate={handleTaskUpdate}
                             />
                         ))}
                     </div>
@@ -480,7 +489,7 @@ const TasksPage = () => {
                                 key={task.id} 
                                 task={task} 
                                 userSubmission={userSubmissions[task.id]} 
-                                onTaskUpdate={refreshUserSubmissions}
+                                onTaskUpdate={handleTaskUpdate}
                             />
                         ))}
                     </div>
@@ -497,7 +506,11 @@ const TasksPage = () => {
                             There are currently no tasks available. New tasks are added regularly!
                         </p>
                         <Button 
-                            onClick={() => window.location.reload()} 
+                            onClick={() => {
+                                dataFetchedRef.current = false;
+                                submissionsFetchedRef.current = false;
+                                window.location.reload();
+                            }} 
                             className="bg-brand-yellow text-black font-bold hover:bg-yellow-400"
                         >
                             <Icons.RefreshCw className="h-4 w-4 mr-2" />
@@ -524,4 +537,3 @@ const TasksPage = () => {
 };
 
 export default TasksPage;
-                        
