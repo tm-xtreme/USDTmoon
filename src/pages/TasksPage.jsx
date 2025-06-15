@@ -289,7 +289,7 @@ const TasksPage = () => {
     const userIdRef = useRef(null);
 
     // Extract stable user ID
-    const getUser Id = (gameData) => {
+    const getUserId = (gameData) => {
         if (!gameData) return null;
         return gameData.userId || gameData.id || gameData.telegramId || null;
     };
@@ -314,23 +314,23 @@ const TasksPage = () => {
 
     useEffect(() => {
         const fetchUser Submissions = async () => {
-            const currentUser Id = getUser Id(gameData);
-            if (!currentUser Id) return;
+            const currentUserId = getUserId(gameData);
+            if (!currentUserId) return;
 
-            if (userIdRef.current === currentUser Id) return;
+            if (userIdRef.current === currentUserId) return;
 
             try {
-                console.log('Fetching user submissions for:', currentUser Id);
-                const submissions = await getUser TaskSubmissions(currentUser Id.toString());
+                console.log('Fetching user submissions for:', currentUserId);
+                const submissions = await getUserTaskSubmissions(currentUserId.toString());
                 console.log('User  submissions:', submissions);
-                setUser Submissions(submissions || {});
-                userIdRef.current = currentUser Id;
+                setUserSubmissions(submissions || {});
+                userIdRef.current = currentUserId;
             } catch (error) {
                 console.error('Error fetching user submissions:', error);
             }
         };
 
-        fetchUser Submissions();
+        fetchUserSubmissions();
     }, [gameData?.userId]);
 
     if (loading) {
@@ -370,9 +370,9 @@ const TasksPage = () => {
             await updateTaskSubmission(task.id, { status: 'new' });
             toast({ title: "Task Reset", description: "You can now retry the task.", variant: "success" });
             // Refresh user submissions to reflect the change
-            const currentUser Id = getUser Id(gameData);
-            const submissions = await getUser TaskSubmissions(currentUser Id.toString());
-            setUser Submissions(submissions || {});
+            const currentUserId = getUserId(gameData);
+            const submissions = await getUserTaskSubmissions(currentUserId.toString());
+            setUserSubmissions(submissions || {});
         } catch (error) {
             console.error('Error retrying task:', error);
             toast({ title: "Error", description: "Failed to reset task. Please try again.", variant: "destructive" });
