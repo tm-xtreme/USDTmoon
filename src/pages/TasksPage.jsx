@@ -144,7 +144,7 @@ const TaskItem = ({ task, userSubmission, onRetry }) => {
 const TasksPage = () => {
     const { data: gameData } = useGameData();
     const [tasks, setTasks] = useState([]);
-    const [userSubmissions, setUser Submissions] = useState({});
+    const [userSubmissions, setUserSubmissions] = useState({});
     const [loading, setLoading] = useState(true);
     const { toast } = useToast();
     const userIdRef = useRef(null);
@@ -168,24 +168,24 @@ const TasksPage = () => {
     }, [toast]);
 
     useEffect(() => {
-        const fetchUser Submissions = async () => {
-            const currentUser Id = gameData?.userId;
+        const fetchUserSubmissions = async () => {
+            const currentUserId = gameData?.userId;
             if (!currentUser Id) return;
 
-            if (userIdRef.current === currentUser Id) return;
+            if (userIdRef.current === currentUserId) return;
 
             try {
                 console.log('Fetching user submissions for:', currentUser Id);
-                const submissions = await getUser TaskSubmissions(currentUser Id.toString());
+                const submissions = await getUserTaskSubmissions(currentUser Id.toString());
                 console.log('User  submissions:', submissions);
-                setUser Submissions(submissions || {});
-                userIdRef.current = currentUser Id;
+                setUserSubmissions(submissions || {});
+                userIdRef.current = currentUserId;
             } catch (error) {
                 console.error('Error fetching user submissions:', error);
             }
         };
 
-        fetchUser Submissions();
+        fetchUserSubmissions();
     }, [gameData?.userId]);
 
     if (loading) {
