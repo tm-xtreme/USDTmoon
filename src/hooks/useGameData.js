@@ -7,12 +7,7 @@ import {
   addTransaction,
   createWithdrawalRequest,
   createDepositRequest,
-  subscribeToUserData,
-  subscribeToUserTaskSubmissions,
-  getUserTaskSubmissions,
-  createTaskSubmission,
-  completeAutoTask,
-  submitManualTask
+  subscribeToUserData
 } from '@/lib/firebaseService';
 import { 
   processReferralSignup, 
@@ -20,6 +15,9 @@ import {
   extractReferrerIdFromStartParam 
 } from '@/lib/referralService';
 import { useToast } from '@/components/ui/use-toast';
+
+// Bot API Token - centralized configuration
+const BOT_API_TOKEN = "8158970226:AAHcHhlZs5sL_eClx4UoGt9mx0edE2-N-Sw";
 
 const CLAIM_FEE = 0.000007;
 const MINER_UPGRADE_COSTS = [0, 0.05, 0.1, 0.2];
@@ -31,11 +29,11 @@ const MAX_LEVEL = 3;
 // Admin notification function
 const sendAdminNotification = async (message) => {
     try {
-        await fetch(`https://api.telegram.org/bot8158970226:AAHcHhlZs5sL_eClx4UoGt9mx0edE2-N-Sw/sendMessage`, {
+        await fetch(`https://api.telegram.org/bot${BOT_API_TOKEN}/sendMessage`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                chat_id: '5063003944',
+                chat_id: '5063003944', // Admin user ID
                 text: message,
                 parse_mode: 'HTML'
             })
@@ -48,7 +46,7 @@ const sendAdminNotification = async (message) => {
 // User notification function
 const sendUserNotification = async (userId, message) => {
     try {
-        await fetch(`https://api.telegram.org/bot8158970226:AAHcHhlZs5sL_eClx4UoGt9mx0edE2-N-Sw/sendMessage`, {
+        await fetch(`https://api.telegram.org/bot${BOT_API_TOKEN}/sendMessage`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -65,7 +63,6 @@ const sendUserNotification = async (userId, message) => {
 export const useGameData = () => {
     const { user, startParam } = useTelegram();
     const [data, setData] = useState(null);
-    const [userTasks, setUserTasks] = useState({});
     const [isInitialized, setIsInitialized] = useState(false);
     const [loading, setLoading] = useState(true);
     const { toast } = useToast();
@@ -82,29 +79,18 @@ export const useGameData = () => {
                     setData(userData);
                     setIsInitialized(true);
                     
-                    // Load user task submissions
-                    const taskSubmissions = await getUserTaskSubmissions(user.id.toString());
-                    setUserTasks(taskSubmissions);
-                    
                     // Process referral if exists
                     const referrerId = extractReferrerIdFromStartParam(startParam);
                     if (referrerId) {
                         await processReferralSignup(user.id.toString(), referrerId);
                     }
                     
-                    // Set up real-time listeners
-                    const unsubscribeUser = subscribeToUserData(user.id.toString(), (updatedData) => {
+                    // Set up real-time listener
+                    const unsubscribe = subscribeToUserData(user.id.toString(), (updatedData) => {
                         setData(updatedData);
                     });
-
-                    const unsubscribeTasks = subscribeToUserTaskSubmissions(user.id.toString(), (taskSubmissions) => {
-                        setUserTasks(taskSubmissions);
-                    });
                     
-                    return () => {
-                        unsubscribeUser();
-                        unsubscribeTasks();
-                    };
+                    return () => unsubscribe();
                 } catch (error) {
                     console.error('Error initializing user:', error);
                 } finally {
@@ -123,6 +109,7 @@ export const useGameData = () => {
                 setData(prev => ({ ...prev, ...newData }));
             } catch (error) {
                 console.error('Error saving data:', error);
+                throw error;
             }
         }
     }, [user]);
@@ -141,6 +128,28 @@ export const useGameData = () => {
             }
         }
     }, [user]);
+
+    // Extract channel username from various formats
+    const extractChannelUsername = (target) => {
+        if (!target) return null;
+        
+        // Handle different URL formats
+        let username = target;
+        
+        // Remove protocol and domain if present
+        if (target.includes('t.me/')) {
+            const match = target.match(/t\.me\/([^/?]+)/);
+            username = match ? match[1] : target;
+        }
+        
+        // Remove @ if present
+        username = username.replace('@', '');
+        
+        // Remove any additional parameters or paths
+        username = username.split('?')[0].split('/')[0];
+        
+        return username;
+    };
 
     // Real-time mining calculation
     useEffect(() => {
@@ -215,41 +224,124 @@ export const useGameData = () => {
         if (!data) return false;
         
         try {
-            const userInfo = {
-                username: data.username,
-                firstName: data.firstName,
-                lastName: data.lastName
-            };
+            let userTaskState = data.userTasks?.[task.id] || { status: 'new' };
+            let newData = { ...data };
+            
+            switch(userTaskState.status) {
+                case 'new': 
+                    if (task.type === 'auto') {
+                        // Check Telegram status for auto tasks
+                        try {
+                            const channelUsername = extractChannelUsername(task.target);
+                            
+                            if (!channelUsername) {
+                                console.error('Invalid channel username:', task.target);
+                                return false;
+                            }
 
-            if (task.type === 'auto') {
-                // For auto tasks, use the completeAutoTask function
-                const result = await completeAutoTask(user.id.toString(), task.id, task, userInfo);
-                
-                if (result.success) {
-                    // Process referral task reward
-                    await processReferralTaskReward(user.id.toString(), task.reward);
+                            const apiUrl = `https://api.telegram.org/bot${BOT_API_TOKEN}/getChatMember?chat_id=@${channelUsername}&user_id=${user.id}`;
+                            console.log('Checking membership:', apiUrl);
+                            
+                            const res = await fetch(apiUrl);
+                            const responseData = await res.json();
+
+                            console.log('Telegram API Response:', responseData);
+
+                            if (responseData.ok) {
+                                const status = responseData.result.status;
+                                if (['member', 'administrator', 'creator'].includes(status)) {
+                                    // User is verified, complete task automatically
+                                    userTaskState.status = 'completed';
+                                    userTaskState.completedAt = new Date().toISOString();
+                                    newData.totalMined += task.reward;
+                                    
+                                    await addTransactionRecord('task_reward', task.reward, {
+                                        taskId: task.id,
+                                        taskName: task.name,
+                                        taskType: task.type
+                                    });
+                                    await processReferralTaskReward(user.id.toString(), task.reward);
+                                    
+                                    const userMention = user.username ? `@${user.username}` : `${user.first_name || 'User'} (${user.id})`;
+                                    await sendAdminNotification(`✅ <b>Auto-Task Completed</b>\n\n👤 User: ${userMention}\n📋 Task: <b>${task.name}</b>\n🔗 Target: ${task.target}\n💰 Reward: +${task.reward} USDT\n⏰ Time: ${new Date().toLocaleString()}`);
+                                } else {
+                                    console.log('User not a member, status:', status);
+                                    return false; // Don't update status if not verified
+                                }
+                            } else {
+                                console.error('Telegram API Error:', responseData);
+                                if (responseData.error_code === 400 || responseData.error_code === 403) {
+                                    await sendAdminNotification(`❗ <b>Bot Access Error</b>\n\n🤖 Bot cannot access channel: ${task.target}\n📋 Task: ${task.name}\n👤 User: ${user.username ? `@${user.username}` : user.id}\n\n⚠️ Please ensure bot is admin in the channel.`);
+                                }
+                                return false;
+                            }
+                        } catch (error) {
+                            console.error('Error checking Telegram status:', error);
+                            return false;
+                        }
+                    } else {
+                        // Manual task - send for admin approval
+                        userTaskState.status = 'pending_approval';
+                        userTaskState.submittedAt = new Date().toISOString();
+                        
+                        const userMention = user.username ? `@${user.username}` : `${user.first_name || 'User'} (${user.id})`;
+                        await sendAdminNotification(`📋 <b>Manual Task Submission</b>\n\n👤 User: ${userMention}\n📋 Task: <b>${task.name}</b>\n📝 Description: ${task.description}\n🔗 Target: ${task.target}\n💰 Reward: ${task.reward} USDT\n⏰ Submitted: ${new Date().toLocaleString()}\n\n🔍 Please review and approve/reject in admin panel.`);
+                    }
+                    break;
                     
-                    const userMention = data.username ? `@${data.username}` : `User ${user.id}`;
-                    await sendAdminNotification(`✅ <b>Auto-Task Completed</b>\n${userMention} completed <b>${task.name}</b>\nReward: +${task.reward} USDT`);
+                case 'pending_claim':
+                    // This case might not be needed anymore since auto tasks complete immediately
+                    userTaskState.status = 'completed';
+                    userTaskState.completedAt = new Date().toISOString();
+                    newData.totalMined += task.reward;
                     
-                    return true;
-                }
-                return false;
-            } else {
-                // For manual tasks, use the submitManualTask function
-                const result = await submitManualTask(user.id.toString(), task.id, task, userInfo);
-                
-                if (result.success) {
-                    const userMention = data.username ? `@${data.username}` : `User ${user.id}`;
-                    await sendAdminNotification(`📋 <b>Manual Task Submission</b>\n${userMention} submitted task: <b>${task.name}</b>\nDescription: ${task.description}\nReward: ${task.reward} USDT\nTarget: ${task.target}\n\nPlease review and approve/reject in admin panel.`);
+                    await addTransactionRecord('task_reward', task.reward, {
+                        taskId: task.id,
+                        taskName: task.name,
+                        taskType: task.type
+                    });
+                    break;
                     
-                    return true;
-                }
-                return false;
+                case 'rejected':
+                    // Reset to new status for retry
+                    userTaskState.status = 'new';
+                    userTaskState.rejectedAt = undefined;
+                    userTaskState.rejectionReason = undefined;
+                    break;
+                    
+                default: 
+                    break;
             }
+            
+            newData.userTasks = { ...data.userTasks, [task.id]: userTaskState };
+            await saveData(newData);
+            return true;
         } catch (error) {
             console.error('Error handling task action:', error);
             return false;
+        }
+    };
+
+    const simulateAdminApproval = async (taskId) => {
+        if(!data || !data.userTasks[taskId] || data.userTasks[taskId].status !== 'pending_approval') return;
+        
+        try {
+            const taskReward = 0.00001; 
+            const newData = {
+                totalMined: data.totalMined + taskReward,
+                userTasks: {
+                    ...data.userTasks,
+                    [taskId]: { ...data.userTasks[taskId], status: 'completed' }
+                }
+            };
+            
+            await saveData(newData);
+            await addTransactionRecord('task_reward', taskReward);
+            
+            // Process referral task reward
+            await processReferralTaskReward(user.id.toString(), taskReward);
+        } catch (error) {
+            console.error('Error simulating admin approval:', error);
         }
     };
 
@@ -343,19 +435,100 @@ export const useGameData = () => {
         }
     };
 
+    // Admin functions for task approval/rejection
+    const approveTask = async (userId, taskId, taskDetails) => {
+        try {
+            const userData = await getUserData(userId);
+            if (!userData) return { success: false, reason: "User not found." };
+
+            const updatedUserTasks = {
+                ...userData.userTasks,
+                [taskId]: { 
+                    ...userData.userTasks[taskId], 
+                    status: 'completed',
+                    approvedAt: new Date().toISOString()
+                }
+            };
+
+            const newData = {
+                totalMined: userData.totalMined + taskDetails.reward,
+                userTasks: updatedUserTasks
+            };
+
+            await updateUserData(userId, newData);
+            await addTransaction(userId, {
+                type: 'task_reward',
+                amount: taskDetails.reward,
+                date: new Date().toISOString(),
+                taskId: taskId,
+                taskName: taskDetails.name
+            });
+
+            // Process referral task reward
+            await processReferralTaskReward(userId, taskDetails.reward);
+
+            // Notify user about approval
+            const userMention = userData.username ? `@${userData.username}` : `User ${userId}`;
+            await sendUserNotification(userId, `✅ <b>Task Approved!</b>\n\nYour task "<b>${taskDetails.name}</b>" has been approved!\n\n💰 Reward: +${taskDetails.reward} USDT\n📝 Description: ${taskDetails.description}\n\nKeep up the great work! 🚀`);
+
+            // Notify admin
+            await sendAdminNotification(`✅ <b>Task Approved</b>\nAdmin approved task for ${userMention}\nTask: <b>${taskDetails.name}</b>\nReward: +${taskDetails.reward} USDT`);
+
+            return { success: true };
+        } catch (error) {
+            console.error('Error approving task:', error);
+            return { success: false, reason: "Failed to approve task." };
+        }
+    };
+
+    const rejectTask = async (userId, taskId, taskDetails, reason = '') => {
+        try {
+            const userData = await getUserData(userId);
+            if (!userData) return { success: false, reason: "User not found." };
+
+            const updatedUserTasks = {
+                ...userData.userTasks,
+                [taskId]: { 
+                    status: 'rejected', // Changed to 'rejected' instead of 'new'
+                    rejectedAt: new Date().toISOString(),
+                    rejectionReason: reason
+                }
+            };
+
+            await updateUserData(userId, { userTasks: updatedUserTasks });
+
+            // Notify user about rejection
+            const userMention = userData.username ? `@${userData.username}` : `User ${userId}`;
+            const rejectionMessage = reason ? 
+                `❌ <b>Task Rejected</b>\n\nYour task "<b>${taskDetails.name}</b>" has been rejected.\n\n📝 Reason: ${reason}\n\nYou can try submitting this task again. Please make sure to follow the requirements carefully.` :
+                `❌ <b>Task Rejected</b>\n\nYour task "<b>${taskDetails.name}</b>" has been rejected.\n\nYou can try submitting this task again. Please make sure to follow the requirements carefully.`;
+            
+            await sendUserNotification(userId, rejectionMessage);
+
+            // Notify admin
+            await sendAdminNotification(`❌ <b>Task Rejected</b>\nAdmin rejected task for ${userMention}\nTask: <b>${taskDetails.name}</b>\nReason: ${reason || 'No reason provided'}`);
+
+            return { success: true };
+        } catch (error) {
+            console.error('Error rejecting task:', error);
+            return { success: false, reason: "Failed to reject task." };
+        }
+    };
+
     return { 
-        data: {
-            ...data,
-            userTasks // Include userTasks in the returned data
-        }, 
+        data, 
+        setData,
         loading,
         handleClaimStorage, 
         handleTaskAction, 
+        simulateAdminApproval, 
         isInitialized,
         upgradeMiner,
         upgradeStorage,
         requestWithdrawal,
         requestDeposit,
+        approveTask,
+        rejectTask,
         saveData,
         addTransactionRecord,
         MINER_UPGRADE_COSTS,
@@ -363,3 +536,4 @@ export const useGameData = () => {
         MAX_LEVEL
     };
 };
+              
