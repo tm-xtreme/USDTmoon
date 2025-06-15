@@ -300,21 +300,44 @@ const TasksPage = () => {
     const [loading, setLoading] = useState(true);
     const { toast } = useToast();
 
+    // Debug logging
+    console.log('TasksPage - gameData:', gameData);
+    console.log('TasksPage - gameLoading:', gameLoading);
+    console.log('TasksPage - loading:', loading);
+
     useEffect(() => {
         const fetchData = async () => {
             try {
+                console.log('Starting to fetch data...');
                 setLoading(true);
                 
-                // Fetch all tasks
+                // Always fetch tasks first
+                console.log('Fetching tasks...');
                 const tasksData = await getAllTasks();
                 console.log('Fetched tasks:', tasksData);
                 setTasks(tasksData || []);
                 
-                // Fetch user task submissions if user is available
+                // Try to get user ID from different possible locations
+                let userId = null;
                 if (gameData?.userId) {
-                    const submissions = await getUserTaskSubmissions(gameData.userId);
+                    userId = gameData.userId;
+                } else if (gameData?.id) {
+                    userId = gameData.id;
+                } else if (gameData?.telegramId) {
+                    userId = gameData.telegramId;
+                }
+                
+                console.log('Detected userId:', userId);
+                
+                // Fetch user task submissions if user ID is available
+                if (userId) {
+                    console.log('Fetching user submissions for userId:', userId);
+                    const submissions = await getUserTaskSubmissions(userId.toString());
                     console.log('User submissions:', submissions);
                     setUserSubmissions(submissions || {});
+                } else {
+                    console.log('No userId found, setting empty submissions');
+                    setUserSubmissions({});
                 }
                 
             } catch (error) {
@@ -325,16 +348,16 @@ const TasksPage = () => {
                     variant: "destructive"
                 });
             } finally {
+                console.log('Finished fetching data');
                 setLoading(false);
             }
         };
 
-        if (gameData?.userId) {
-            fetchData();
-        }
-    }, [toast, gameData?.userId]);
+        // Don't wait for gameData, fetch tasks immediately
+        fetchData();
+    }, [toast, gameData]); // Depend on gameData changes
 
-    if (loading || gameLoading) {
+    if (loading) {
         return (
             <div className="p-4 space-y-6 bg-gradient-to-b from-yellow-50 to-orange-50 min-h-screen">
                 <div className="text-center">
@@ -345,20 +368,8 @@ const TasksPage = () => {
         );
     }
 
-    if (!gameData) {
-        return (
-            <div className="p-4 space-y-6 bg-gradient-to-b from-yellow-50 to-orange-50 min-h-screen">
-                <div className="text-center">
-                    <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-brand-yellow mx-auto"></div>
-                    <p className="mt-4 text-brand-text">Loading user data...</p>
-                </div>
-            </div>
-        );
-    }
-
     console.log('All tasks:', tasks);
     console.log('User submissions:', userSubmissions);
-    console.log('Current user ID:', gameData?.userId);
 
     // Filter tasks based on submission status
     const availableTasks = tasks.filter(task => {
@@ -496,8 +507,22 @@ const TasksPage = () => {
                     </CardContent>
                 </Card>
             )}
+
+            {/* Debug Info - Remove this in production */}
+            {process.env.NODE_ENV === 'development' && (
+                <Card className="bg-gray-100 border-gray-300">
+                    <CardContent className="p-4">
+                        <h3 className="font-bold mb-2">Debug Info:</h3>
+                        <p className="text-xs">Tasks loaded: {tasks.length}</p>
+                        <p className="text-xs">User submissions: {Object.keys(userSubmissions).length}</p>
+                        <p className="text-xs">GameData available: {gameData ? 'Yes' : 'No'}</p>
+                        <p className="text-xs">User ID: {gameData?.userId || gameData?.id || gameData?.telegramId || 'Not found'}</p>
+                    </CardContent>
+                </Card>
+            )}
         </div>
     );
 };
 
 export default TasksPage;
+                                
