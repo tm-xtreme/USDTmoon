@@ -313,7 +313,7 @@ const TasksPage = () => {
     }, [toast]);
 
     useEffect(() => {
-        const fetchUser Submissions = async () => {
+        const fetchUserSubmissions = async () => {
             const currentUserId = getUserId(gameData);
             if (!currentUserId) return;
 
