@@ -283,7 +283,7 @@ const TaskItem = ({ task, userSubmission, onRetry }) => {
 const TasksPage = () => {
     const { data: gameData } = useGameData();
     const [tasks, setTasks] = useState([]);
-    const [userSubmissions, setUser Submissions] = useState({});
+    const [userSubmissions, setUserSubmissions] = useState({});
     const [loading, setLoading] = useState(true);
     const { toast } = useToast();
     const userIdRef = useRef(null);
