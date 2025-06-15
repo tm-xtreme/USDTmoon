@@ -3,7 +3,7 @@ import { useToast } from '@/components/ui/use-toast';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { useGameData } from '@/hooks/useGameData';
-import { getAllTasks, getUserTaskSubmissions, updateTaskSubmission } from '@/lib/firebaseService';
+import { getAllTasks, getUserTaskSubmissions } from '@/lib/firebaseService';
 import * as Icons from 'lucide-react';
 
 const TaskItem = ({ task, userSubmission, onRetry }) => {
@@ -152,8 +152,12 @@ const TaskItem = ({ task, userSubmission, onRetry }) => {
                     });
                 }
             } else if (userTask.status === 'rejected') {
-                // Retry functionality
-                onRetry(task);
+                // Retry functionality - just reset the local state for now
+                setHasVisited(false);
+                toast({
+                    title: "Try Again",
+                    description: "You can now retry this task.",
+                });
             }
         } catch (error) {
             console.error('Error handling task action:', error);
@@ -322,7 +326,7 @@ const TasksPage = () => {
             try {
                 console.log('Fetching user submissions for:', currentUserId);
                 const submissions = await getUserTaskSubmissions(currentUserId.toString());
-                console.log('User  submissions:', submissions);
+                console.log('User submissions:', submissions);
                 setUserSubmissions(submissions || {});
                 userIdRef.current = currentUserId;
             } catch (error) {
@@ -360,23 +364,12 @@ const TasksPage = () => {
         return submission && submission.status === 'approved';
     });
 
-    console.log('Available tasks:', availableTasks.length);
-    console.log('Pending tasks:', pendingTasks.length);
-    console.log('Completed tasks:', completedTasks.length);
-
     const handleRetry = async (task) => {
-        try {
-            // Reset the task status to 'new' for retry
-            await updateTaskSubmission(task.id, { status: 'new' });
-            toast({ title: "Task Reset", description: "You can now retry the task.", variant: "success" });
-            // Refresh user submissions to reflect the change
-            const currentUserId = getUserId(gameData);
-            const submissions = await getUserTaskSubmissions(currentUserId.toString());
-            setUserSubmissions(submissions || {});
-        } catch (error) {
-            console.error('Error retrying task:', error);
-            toast({ title: "Error", description: "Failed to reset task. Please try again.", variant: "destructive" });
-        }
+        // For now, just show a message since we don't have updateTaskSubmission
+        toast({ 
+            title: "Retry Task", 
+            description: "Please try submitting the task again.",
+        });
     };
 
     return (
@@ -500,3 +493,4 @@ const TasksPage = () => {
 };
 
 export default TasksPage;
+                
